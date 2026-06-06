@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "paper-research"
+version = "0.1.0"
+description = "A lightweight desktop app for tracking arXiv papers."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "flet>=0.85,<0.86",
+    "httpx>=0.28,<0.29",
+    "feedparser>=6.0.12,<7",
+    "pydantic>=2.7,<3",
+    "python-dateutil>=2.8.2,<3",
+    "python-dotenv>=1.0,<2",
+]
+
+[tool.setuptools]
+py-modules = []
