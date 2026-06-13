@@ -436,8 +436,8 @@ class SubscriptionRepositoryTests(unittest.TestCase):
         self.assertEqual(first["created_at"], second["created_at"])
 
     def test_list_enabled_only_returns_enabled(self) -> None:
-        self._repo.save(_make_subscription(id="sub-1", enabled=True))
-        self._repo.save(_make_subscription(id="sub-2", enabled=False))
+        self._repo.save(_make_subscription(id="sub-1", enabled=True, name="Enabled Sub"))
+        self._repo.save(_make_subscription(id="sub-2", enabled=False, name="Disabled Sub"))
         self._conn.commit()
 
         enabled = self._repo.list_enabled()
@@ -445,8 +445,8 @@ class SubscriptionRepositoryTests(unittest.TestCase):
         self.assertEqual(enabled[0].id, "sub-1")
 
     def test_list_all_returns_all(self) -> None:
-        self._repo.save(_make_subscription(id="sub-1"))
-        self._repo.save(_make_subscription(id="sub-2", enabled=False))
+        self._repo.save(_make_subscription(id="sub-1", name="Sub One"))
+        self._repo.save(_make_subscription(id="sub-2", enabled=False, name="Sub Two"))
         self._conn.commit()
 
         all_subs = self._repo.list_all()
