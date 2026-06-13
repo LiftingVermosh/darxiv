@@ -54,3 +54,6 @@ temp/
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# Docus
+docs/plans/*.md
