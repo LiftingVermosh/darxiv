@@ -12,7 +12,7 @@ import sqlite3
 from types import TracebackType
 from typing import Self
 
-from app.application.services import SubscriptionService, SyncService
+from app.application.services import PaperQueryService, SubscriptionService, SyncService
 from app.infrastructure.db.connection import get_connection
 
 
@@ -29,6 +29,7 @@ class AppContext:
 
     Attributes:
         connection: 已初始化的 SQLite 连接（启用外键 + Row 工厂）
+        paper_query_service: 论文查询聚合服务
         subscription_service: 订阅管理服务
         sync_service: 同步编排服务
     """
@@ -36,10 +37,12 @@ class AppContext:
     def __init__(
         self,
         connection: sqlite3.Connection,
+        paper_query_service: PaperQueryService,
         subscription_service: SubscriptionService,
         sync_service: SyncService,
     ) -> None:
         self.connection = connection
+        self.paper_query_service = paper_query_service
         self.subscription_service = subscription_service
         self.sync_service = sync_service
         self._closed = False
@@ -95,11 +98,13 @@ def create_app_context(
         装配完成的 :class:`AppContext`
     """
     connection = get_connection(db_path, auto_init=auto_init)
+    paper_query_service = PaperQueryService(connection)
     sync_service = SyncService(connection)
     subscription_service = SubscriptionService(connection, sync_service=sync_service)
 
     return AppContext(
         connection=connection,
+        paper_query_service=paper_query_service,
         subscription_service=subscription_service,
         sync_service=sync_service,
     )
