@@ -27,3 +27,28 @@ class InvalidSubscriptionRuleError(SubscriptionServiceError):
     def __init__(self, reason: str) -> None:
         self.reason = reason
         super().__init__(reason)
+
+
+# ---------------------------------------------------------------------------
+# StatusService exceptions
+# ---------------------------------------------------------------------------
+
+
+class StatusServiceError(Exception):
+    """状态服务层异常的基类"""
+
+
+class PaperNotFoundError(StatusServiceError):
+    """目标论文在 ``papers`` 表中不存在"""
+
+    def __init__(self, arxiv_id: str) -> None:
+        self.arxiv_id = arxiv_id
+        super().__init__(f"Paper '{arxiv_id}' not found. Cannot update status.")
+
+
+class InvalidPaperStatusError(StatusServiceError):
+    """状态更新违反业务约束"""
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(reason)
