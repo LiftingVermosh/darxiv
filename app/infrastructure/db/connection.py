@@ -40,6 +40,10 @@ def get_connection(
     if auto_init:
         from app.infrastructure.db.migrations import initialize_database
 
-        initialize_database(connection)
+        try:
+            initialize_database(connection)
+        except Exception:
+            connection.close()
+            raise
 
     return connection

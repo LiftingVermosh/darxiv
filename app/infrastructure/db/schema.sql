@@ -55,7 +55,8 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     sync_interval_minutes   INTEGER NOT NULL,
     created_at              TEXT NOT NULL,
     updated_at              TEXT NOT NULL,
-    last_synced_at          TEXT
+    last_synced_at          TEXT,
+    UNIQUE(name)
 );
 
 CREATE TABLE IF NOT EXISTS paper_statuses (

@@ -173,6 +173,13 @@ class SyncService:
                 updated_count=updated,
             )
             self._sync_run_repo.update(run)
+
+            # 回写订阅的 last_synced_at，使 UI/调度层可查询上次同步时间
+            self._sub_repo.set_last_synced_at(
+                subscription.id,
+                finished_at.isoformat(),
+            )
+
             self._conn.commit()
 
             return SyncResultDTO(

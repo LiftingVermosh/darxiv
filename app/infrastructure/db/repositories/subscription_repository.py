@@ -136,3 +136,21 @@ class SubscriptionRepository:
         调用方负责提交事务。
         """
         self._conn.execute(_DELETE_SQL, (subscription_id,))
+
+    def set_last_synced_at(
+        self,
+        subscription_id: str,
+        timestamp: str,
+    ) -> None:
+        """将指定订阅的 ``last_synced_at`` 更新为 *timestamp*。
+
+        Args:
+            subscription_id: 订阅 ID
+            timestamp: UTC ISO 8601 时间戳字符串
+
+        调用方负责提交事务。
+        """
+        self._conn.execute(
+            "UPDATE subscriptions SET last_synced_at = ? WHERE id = ?",
+            (timestamp, subscription_id),
+        )
