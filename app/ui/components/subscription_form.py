@@ -129,7 +129,7 @@ def open_subscription_dialog(
         ),
         actions=[
             ft.TextButton("Cancel", on_click=lambda e: page.close(dialog)),
-            ft.ElevatedButton("Save", on_click=lambda e: _handle_save()),
+            ft.FilledButton("Save", on_click=lambda e: _handle_save()),
         ],
     )
 

@@ -115,7 +115,7 @@ def build_filter_panel(
         hidden_check.value = None
         on_apply(PaperListFilters())
 
-    apply_btn = ft.ElevatedButton(
+    apply_btn = ft.FilledButton(
         "Apply",
         on_click=_on_apply,
         height=36,

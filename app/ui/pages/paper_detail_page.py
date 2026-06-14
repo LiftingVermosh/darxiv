@@ -218,12 +218,12 @@ def build_paper_detail_view(ctx: AppContext, page: ft.Page, arxiv_id: str) -> ft
                 # 外部链接
                 ft.Row(
                     controls=[
-                        ft.ElevatedButton(
+                        ft.FilledButton(
                             "Open arXiv Page",
                             icon=ft.Icons.OPEN_IN_BROWSER,
                             on_click=lambda e: page.launch_url(detail.abs_url),
                         ),
-                        ft.ElevatedButton(
+                        ft.FilledButton(
                             "Open PDF",
                             icon=ft.Icons.PICTURE_AS_PDF,
                             on_click=lambda e: page.launch_url(detail.pdf_url)
@@ -255,7 +255,7 @@ def build_paper_detail_view(ctx: AppContext, page: ft.Page, arxiv_id: str) -> ft
                 ft.Column(
                     controls=[
                         note_field,
-                        ft.ElevatedButton("Save Note", on_click=_save_note),
+                        ft.FilledButton("Save Note", on_click=_save_note),
                     ],
                     spacing=4,
                 ),
@@ -263,7 +263,7 @@ def build_paper_detail_view(ctx: AppContext, page: ft.Page, arxiv_id: str) -> ft
                 ft.Column(
                     controls=[
                         tags_field,
-                        ft.ElevatedButton("Save Tags", on_click=_save_tags),
+                        ft.FilledButton("Save Tags", on_click=_save_tags),
                     ],
                     spacing=4,
                 ),

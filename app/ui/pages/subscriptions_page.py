@@ -162,7 +162,7 @@ def build_subscriptions_view(ctx: AppContext, page: ft.Page) -> ft.View:
                 ),
                 actions=[
                     ft.TextButton("Cancel", on_click=lambda e: page.close(confirm_dialog)),
-                    ft.ElevatedButton(
+                    ft.FilledButton(
                         "Delete",
                         on_click=_confirm_delete,
                         style=ft.ButtonStyle(color=ft.Colors.RED_700),

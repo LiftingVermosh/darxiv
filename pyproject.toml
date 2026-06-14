@@ -19,3 +19,22 @@ dependencies = [
 
 [tool.setuptools]
 py-modules = []
+
+[tool.pytest.ini_options]
+# ------------------------------------------------------------------
+# 已知技术债：daemon 线程 GC 导致的 ResourceWarning
+#
+# SyncScheduler 的后台线程通过 settings_service 持有 SQLite 连接
+# 引用。线程作为 daemon 退出后，Python GC 在最终化这些连接对象时
+# 会产出 ``ResourceWarning: unclosed database``。
+#
+# 连接在 tearDown 中已显式关闭（主线程），警告源于 daemon 线程帧
+# 仍持有同一连接的引用副本。这不影响数据完整性，也不泄漏系统资源
+# （进程退出时 OS 回收）。
+#
+# 跟踪：与 scheduler 线程生命周期绑定，非 trivial 修复。
+# 计划在 scheduler 重构为可控 executor 后移除本过滤器。
+# ------------------------------------------------------------------
+filterwarnings = [
+    "ignore:unclosed database:ResourceWarning",
+]

@@ -6,19 +6,24 @@
 
 from __future__ import annotations
 
+import logging
+
 import flet as ft
 
+from app.infrastructure.config.app_config import AppRuntimeConfig
 from app.main import AppContext, create_app_context
 from app.ui.pages.dashboard_page import build_dashboard_view
 from app.ui.pages.paper_detail_page import build_paper_detail_view
 from app.ui.pages.settings_page import build_settings_view
 from app.ui.pages.subscriptions_page import build_subscriptions_view
 
+logger = logging.getLogger(__name__)
+
 
 class AppShell:
     """Flet 应用主壳。
 
-    通过 ``ft.app(target=AppShell())`` 启动。
+    通过 ``ft.app(target=AppShell(config=...))`` 启动。
     内部完成页面配置、路由注册与 AppContext 装配。
 
     Attributes:
@@ -26,8 +31,8 @@ class AppShell:
         ctx: 共享的 :class:`AppContext` 服务容器
     """
 
-    def __init__(self, db_path: str | None = None) -> None:
-        self._db_path = db_path
+    def __init__(self, config: AppRuntimeConfig | None = None) -> None:
+        self._config = config  # 延迟解析：仅在 __call__ 中 Flet 真正启动时才创建
         self.page: ft.Page | None = None
         self.ctx: AppContext | None = None
 
@@ -37,7 +42,20 @@ class AppShell:
         在 Flet 启动时被调用一次，传入由框架创建的 Page 实例。
         """
         self.page = page
-        self.ctx = create_app_context(self._db_path)
+
+        # -- 延迟解析运行时配置（仅在 Flet 真正启动时） --
+        if self._config is None:
+            self._config = AppRuntimeConfig.create()
+        config = self._config
+
+        # -- 装配应用上下文 --
+        try:
+            self.ctx = create_app_context(config.db_path)
+            logger.info("AppContext created successfully (db=%s).", config.db_path)
+        except Exception as exc:
+            logger.critical("Failed to create AppContext: %s", exc, exc_info=True)
+            self._show_fatal_error(page, str(exc))
+            return
 
         # -- 页面级配置 --
         page.title = "Paper Research"
@@ -83,9 +101,74 @@ class AppShell:
         # -- 初始路由（恢复上次打开的页面） --
         last_page = self.ctx.settings_service.get("last_open_page")
         if last_page and isinstance(last_page, str) and last_page.startswith("/"):
+            logger.debug("Restoring last page: %s", last_page)
             page.go(last_page)
         else:
             page.go("/dashboard")
+
+        logger.info("AppShell initialized successfully.")
+
+    # ------------------------------------------------------------------
+    # Fatal error handling
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _show_fatal_error(page: ft.Page, error_message: str) -> None:
+        """展示启动失败的错误页面。
+
+        数据库初始化失败或 service 装配失败时调用，
+        避免用户面对空白窗口无法定位问题。
+        """
+        page.title = "Paper Research — Startup Error"
+        page.add(
+            ft.Container(
+                content=ft.Column(
+                    controls=[
+                        ft.Icon(
+                            ft.Icons.ERROR_OUTLINE,
+                            size=64,
+                            color=ft.Colors.RED_400,
+                        ),
+                        ft.Text(
+                            "Startup Failed",
+                            size=24,
+                            weight=ft.FontWeight.BOLD,
+                            color=ft.Colors.RED_700,
+                        ),
+                        ft.Text(
+                            "The application could not start due to the following error:",
+                            size=14,
+                            color=ft.Colors.GREY_700,
+                        ),
+                        ft.Container(
+                            content=ft.Text(
+                                error_message,
+                                size=13,
+                                color=ft.Colors.RED_700,
+                                selectable=True,
+                            ),
+                            padding=16,
+                            bgcolor=ft.Colors.RED_50,
+                            border_radius=8,
+                        ),
+                        ft.Text(
+                            "Please check the log file for more details.\n"
+                            "Make sure the database path is writable and "
+                            "no other instance is using the database.",
+                            size=12,
+                            color=ft.Colors.GREY_500,
+                            text_align=ft.TextAlign.CENTER,
+                        ),
+                    ],
+                    spacing=16,
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                alignment=ft.alignment.center,
+                expand=True,
+                padding=32,
+            )
+        )
 
     # ------------------------------------------------------------------
     # Scheduler lifecycle
@@ -93,6 +176,7 @@ class AppShell:
 
     def _on_window_close(self, e) -> None:
         """窗口关闭时释放数据库、HTTP 客户端并停止调度器。"""
+        logger.info("Window close requested.")
         if self.ctx is not None:
             self.ctx.close()
 
@@ -102,7 +186,10 @@ class AppShell:
             return
         settings = self.ctx.settings_service.get_all()
         if settings.auto_sync_enabled:
+            logger.info("Auto-sync enabled — starting scheduler.")
             self.ctx.scheduler.start()
+        else:
+            logger.debug("Auto-sync disabled — scheduler not started.")
 
     # ------------------------------------------------------------------
     # Route handling
@@ -138,6 +225,7 @@ class AppShell:
             # 论文详情页是瞬时页面，不作为恢复目标
         else:
             # 未知路由 → 重定向到 Dashboard
+            logger.warning("Unknown route '%s', redirecting to /dashboard.", route)
             self.page.go("/dashboard")
             return
 

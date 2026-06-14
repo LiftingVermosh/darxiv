@@ -1,6 +1,8 @@
 """Paper Research — Application entry point.
 
 启动阶段负责：
+- 日志基础设施初始化（控制台 + 文件）
+- 运行时配置解析（开发态 vs 发布态路径策略）
 - 数据库连接与 schema 初始化
 - Repository / Service 装配
 - 为 UI 层提供统一的 :class:`AppContext`
@@ -8,7 +10,9 @@
 
 from __future__ import annotations
 
+import logging
 import sqlite3
+import sys
 from types import TracebackType
 from typing import Self
 
@@ -21,6 +25,8 @@ from app.application.services import (
 )
 from app.infrastructure.db.connection import get_connection
 from app.infrastructure.scheduler import SyncScheduler
+
+logger = logging.getLogger(__name__)
 
 
 class AppContext:
@@ -78,22 +84,27 @@ class AppContext:
         由于线程为 daemon，进程退出时 OS 会自动回收。
         """
         if self._closed:
+            logger.debug("AppContext.close() called on already-closed context, skipping.")
             return
 
+        logger.info("Shutting down AppContext...")
         clean = self.scheduler.stop()
         if not clean:
-            import logging
-
-            logging.getLogger(__name__).warning(
+            logger.warning(
                 "Scheduler did not stop cleanly; "
                 "skipping resource teardown to avoid use-after-close."
             )
             self._closed = True
             return
 
+        logger.debug("Closing SyncService (HTTP client)...")
         self.sync_service.close()
+
+        logger.debug("Closing database connection...")
         self.connection.close()
+
         self._closed = True
+        logger.info("AppContext shutdown complete.")
 
     def __enter__(self) -> Self:
         return self
@@ -133,14 +144,30 @@ def create_app_context(
 
     Returns:
         装配完成的 :class:`AppContext`
+
+    Raises:
+        RuntimeError: 数据库初始化或 service 装配失败时抛出
     """
-    connection = get_connection(db_path, auto_init=auto_init)
-    paper_query_service = PaperQueryService(connection)
-    settings_service = SettingsService(connection)
-    status_service = StatusService(connection)
-    sync_service = SyncService(connection)
-    subscription_service = SubscriptionService(connection, sync_service=sync_service)
-    scheduler = SyncScheduler(sync_service, settings_service)
+    try:
+        connection = get_connection(db_path, auto_init=auto_init)
+        logger.info("Database connection established: %s", db_path or "(default)")
+    except Exception as exc:
+        logger.critical("Failed to initialize database: %s", exc, exc_info=True)
+        raise RuntimeError(f"Database initialization failed: {exc}") from exc
+
+    try:
+        paper_query_service = PaperQueryService(connection)
+        settings_service = SettingsService(connection)
+        status_service = StatusService(connection)
+        sync_service = SyncService(connection)
+        subscription_service = SubscriptionService(connection, sync_service=sync_service)
+        scheduler = SyncScheduler(sync_service, settings_service)
+
+        logger.debug("All services and scheduler assembled.")
+    except Exception as exc:
+        logger.critical("Failed to assemble services: %s", exc, exc_info=True)
+        connection.close()
+        raise RuntimeError(f"Service assembly failed: {exc}") from exc
 
     return AppContext(
         connection=connection,
@@ -161,6 +188,11 @@ def create_app_context(
 def main() -> None:
     """Flet application entry point.
 
+    启动顺序：
+    1. 解析运行时配置（路径、日志级别、开发/发布模式）
+    2. 初始化日志系统（文件 + 控制台）
+    3. 启动 Flet 桌面应用
+
     Launch with::
 
         python -m app.main
@@ -168,12 +200,60 @@ def main() -> None:
     Or run this file directly::
 
         python app/main.py
+
+    Environment variables:
+        ``PAPER_RESEARCH_DEV_MODE=1`` — 使用 ``./runtime/`` 作为数据根目录
+        ``PAPER_RESEARCH_DB_PATH=<path>`` — 显式指定数据库路径
+        ``PAPER_RESEARCH_LOG_LEVEL=DEBUG`` — 设置日志级别
     """
+    from app.infrastructure.config.app_config import AppRuntimeConfig
+    from app.infrastructure.logging.setup import setup_logging
+
+    # -- 1. 解析配置（纯路径解析，无 I/O） --
+    try:
+        config = AppRuntimeConfig.create()
+    except Exception as exc:
+        # 配置解析失败 → 最小化控制台输出 + 退出
+        print(f"[FATAL] Failed to resolve runtime config: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    # -- 2. 创建运行时目录（唯一触发文件系统 I/O 的位置） --
+    try:
+        config.paths.ensure_dirs()
+    except OSError as exc:
+        print(f"[FATAL] Cannot create runtime directories: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    # -- 3. 初始化日志（此时目录已确保存在） --
+    log_check = setup_logging(config)
+    if not log_check.ok:
+        print(f"[FATAL] Logging initialization failed: {log_check.fatal_error}", file=sys.stderr)
+        sys.exit(1)
+
+    for warning in log_check.warnings:
+        logger.warning("Startup warning: %s", warning)
+
+    logger.info("===========================================")
+    logger.info("  Paper Research — starting up")
+    logger.info("  dev_mode  = %s", config.is_dev_mode)
+    logger.info("  data_dir  = %s", config.data_dir)
+    logger.info("  db_path   = %s", config.db_path)
+    logger.info("  log_file  = %s", config.log_file)
+    logger.info("  log_level = %s", config.log_level)
+    logger.info("===========================================")
+
+    # -- 3. 启动 Flet --
     import flet as ft
 
     from app.ui.app_shell import AppShell
 
-    ft.app(target=AppShell())
+    try:
+        ft.app(target=AppShell(config=config))
+    except Exception as exc:
+        logger.critical("Flet application crashed: %s", exc, exc_info=True)
+        sys.exit(1)
+    finally:
+        logger.info("Paper Research — exiting.")
 
 
 if __name__ == "__main__":

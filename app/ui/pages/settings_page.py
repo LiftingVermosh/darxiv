@@ -166,7 +166,7 @@ def build_settings_view(ctx: AppContext, page: ft.Page) -> ft.View:
                     show_hidden_switch,
                     ft.Divider(),
                     # ---- 保存按钮 ----
-                    ft.ElevatedButton("Save Settings", on_click=_on_save),
+                    ft.FilledButton("Save Settings", on_click=_on_save),
                     ft.Divider(),
                     # ---- 调度器状态 ----
                     ft.Text("Scheduler Status", size=18, weight=ft.FontWeight.BOLD),
