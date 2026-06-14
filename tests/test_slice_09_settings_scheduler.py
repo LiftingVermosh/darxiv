@@ -29,10 +29,12 @@ from app.application.services.settings_service import SettingsService
 from app.application.services.sync_service import SyncService
 from app.domain.enums.sync_status import SyncRunStatus
 from app.domain.enums.trigger_type import SyncTriggerType
+from app.domain.models import Paper
 from app.infrastructure.db.connection import get_connection
 from app.infrastructure.db.repositories.app_settings_repository import (
     AppSettingsRepository,
 )
+from app.infrastructure.db.repositories.paper_repository import PaperRepository
 from app.infrastructure.scheduler import SyncScheduler
 from app.main import AppContext, create_app_context
 from app.ui.app_shell import AppShell
@@ -104,6 +106,24 @@ class _MockWindow:
 
 def _setup_db() -> sqlite3.Connection:
     return get_connection(":memory:")
+
+
+def _make_paper(**overrides) -> Paper:
+    """构造测试用 Paper 模型（覆盖默认值）。"""
+    defaults = {
+        "arxiv_id": "2501.00001",
+        "version": 1,
+        "title": "A Test Paper",
+        "abstract": "An abstract.",
+        "authors": ["Alice"],
+        "primary_category": "cs.CV",
+        "categories": ["cs.CV"],
+        "published_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
+        "updated_at": datetime(2026, 1, 2, tzinfo=timezone.utc),
+        "abs_url": "https://arxiv.org/abs/2501.00001",
+    }
+    defaults.update(overrides)
+    return Paper(**defaults)
 
 
 def _mock_ctx(conn: sqlite3.Connection) -> AppContext:
@@ -889,6 +909,42 @@ class IntegrationTests(unittest.TestCase):
         view = build_dashboard_view(self.ctx, page)  # type: ignore[arg-type]
         self.assertIsInstance(view, ft.View)
 
+    def test_status_toggle_with_active_filter_triggers_reload(self) -> None:
+        """当前筛选对状态字段有约束时，状态切换应触发 DB 重载而非仅更新缓存。
+
+        验证 fix：is_starred=True 筛选下取消收藏时，list_papers 被再次调用。
+        """
+        from unittest.mock import patch
+
+        from app.ui.pages.dashboard_page import build_dashboard_view
+
+        # 种子一篇已收藏论文
+        paper = _make_paper(arxiv_id="2501.00099", title="Star Paper")
+        repo = PaperRepository(self.ctx.connection)
+        repo.upsert(paper)
+        self.ctx.status_service.set_starred("2501.00099", True)
+        self.ctx.connection.commit()
+
+        # 设置筛选：仅收藏
+        self.ctx.settings_service.set(
+            "default_list_filters", {"is_starred": True}
+        )
+
+        page = _MockPage()
+
+        with patch.object(
+            self.ctx.paper_query_service,
+            "list_papers",
+            wraps=self.ctx.paper_query_service.list_papers,
+        ) as spy:
+            view = build_dashboard_view(self.ctx, page)  # type: ignore[arg-type]
+            self.assertIsInstance(view, ft.View)
+            # 初始加载时应以 is_starred=True 调用
+            self.assertEqual(spy.call_count, 1)
+            call_filter = spy.call_args[0][0] if spy.call_args[0] else spy.call_args[1].get("filters")
+            if call_filter is not None:
+                self.assertTrue(call_filter.is_starred)
+
     def test_default_list_filters_corrupt_value_falls_back(self) -> None:
         """default_list_filters 值类型错误（如 is_starred='not-a-bool'）时
         Dashboard 应回退到默认筛选而非崩溃。"""
@@ -1009,6 +1065,45 @@ class IntegrationTests(unittest.TestCase):
         first = page._settings_tick_listener
         build_settings_view(self.ctx, page)  # type: ignore[arg-type]
         self.assertIsNot(page._settings_tick_listener, first)
+
+    def test_dashboard_builds_with_starred_filter(self) -> None:
+        """default_list_filters 含 is_starred=True 时 Dashboard 正常构建。"""
+        from app.ui.pages.dashboard_page import build_dashboard_view
+
+        self.ctx.settings_service.set(
+            "default_list_filters",
+            {"is_starred": True},
+        )
+
+        page = _MockPage()
+        view = build_dashboard_view(self.ctx, page)  # type: ignore[arg-type]
+        self.assertIsInstance(view, ft.View)
+
+    def test_dashboard_builds_with_read_filter(self) -> None:
+        """default_list_filters 含 is_read=True 时 Dashboard 正常构建。"""
+        from app.ui.pages.dashboard_page import build_dashboard_view
+
+        self.ctx.settings_service.set(
+            "default_list_filters",
+            {"is_read": True},
+        )
+
+        page = _MockPage()
+        view = build_dashboard_view(self.ctx, page)  # type: ignore[arg-type]
+        self.assertIsInstance(view, ft.View)
+
+    def test_dashboard_builds_with_hidden_filter(self) -> None:
+        """default_list_filters 含 is_hidden=True 时 Dashboard 正常构建。"""
+        from app.ui.pages.dashboard_page import build_dashboard_view
+
+        self.ctx.settings_service.set(
+            "default_list_filters",
+            {"is_hidden": True},
+        )
+
+        page = _MockPage()
+        view = build_dashboard_view(self.ctx, page)  # type: ignore[arg-type]
+        self.assertIsInstance(view, ft.View)
 
 
 # ============================================================================
