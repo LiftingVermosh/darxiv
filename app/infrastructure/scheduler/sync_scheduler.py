@@ -69,6 +69,7 @@ class SyncScheduler:
         # -- 线程控制 --
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
+        self._tick_lock = threading.Lock()  # 防止 tick 并发执行，同时供 stop() 等待
 
         # -- 状态 --
         self._lock = threading.Lock()
@@ -113,23 +114,44 @@ class SyncScheduler:
         self._thread.start()
         logger.info("SyncScheduler started.")
 
-    def stop(self, timeout: float = 5.0) -> None:
+    def stop(self, timeout: float = 30.0) -> bool:
         """停止调度循环并等待后台线程退出。
+
+        先发送停止信号，随后等待正在执行的 tick 完成（通过 ``_tick_lock``），
+        最后 join 线程。已在运行时返回的 tick 不会进入下一次循环。
 
         已停止时调用为幂等操作。
 
         Args:
-            timeout: 等待线程退出的最大秒数
+            timeout: 等待线程退出的最大秒数（默认 30s）
+
+        Returns:
+            ``True`` 表示干净退出；``False`` 表示超时，后台线程可能仍在运行
         """
         with self._lock:
             if not self._running:
-                return
+                return True
             self._running = False
 
         self._stop_event.set()
+        clean = True
+
+        # 等待正在执行的 tick 结束（防 close() 提前关闭 DB）
+        if not self._tick_lock.acquire(timeout=timeout):
+            logger.warning(
+                "Timed out waiting for in-flight scheduler tick to finish."
+            )
+            clean = False
+        else:
+            self._tick_lock.release()
+
         if self._thread is not None and self._thread.is_alive():
             self._thread.join(timeout=timeout)
-        logger.info("SyncScheduler stopped.")
+            if self._thread.is_alive():
+                clean = False
+
+        logger.info("SyncScheduler stopped (clean=%s).", clean)
+        return clean
 
     # ------------------------------------------------------------------
     # Observers
@@ -192,51 +214,68 @@ class SyncScheduler:
     def _do_tick(self, *, use_due_only: bool = False) -> None:
         """执行一次完整的同步周期。
 
+        持有 ``_tick_lock`` 期间执行，既防止多个 tick 并发，
+        也为 ``stop()`` 提供同步点——后者会在返回前等待此锁释放。
+
         Args:
             use_due_only: ``True`` 时调用 :meth:`sync_due_subscriptions`
                 （仅同步到达各自间隔的订阅）；``False`` 时调用
                 :meth:`sync_enabled_subscriptions`（全量同步）。
         """
-        started_at = datetime.now(timezone.utc)
-
-        # 通知 running 状态
-        running_event = SchedulerTickEvent(
-            started_at=started_at,
-            status="running",
-        )
-        self._store_and_notify(running_event)
-
+        if not self._tick_lock.acquire(blocking=False):
+            # 上一轮 tick 尚未完成，跳过本轮
+            return
         try:
-            if use_due_only:
-                results = self._sync_service.sync_due_subscriptions(
-                    trigger_type=SyncTriggerType.SCHEDULED,
-                )
-            else:
-                results = self._sync_service.sync_enabled_subscriptions(
-                    trigger_type=SyncTriggerType.SCHEDULED,
-                )
-            finished_at = datetime.now(timezone.utc)
+            started_at = datetime.now(timezone.utc)
 
-            errors = [r.error_message for r in results if r.error_message]
-            event = SchedulerTickEvent(
+            # 通知 running 状态
+            running_event = SchedulerTickEvent(
                 started_at=started_at,
-                finished_at=finished_at,
-                status="completed",
-                results=results,
-                error_message="; ".join(errors) if errors else None,
+                status="running",
             )
+            self._store_and_notify(running_event)
 
-        except Exception as exc:
-            logger.exception("Scheduler tick failed.")
-            finished_at = datetime.now(timezone.utc)
-            event = SchedulerTickEvent(
-                started_at=started_at,
-                finished_at=finished_at,
-                status="failed",
-                error_message=str(exc),
-            )
+            try:
+                if use_due_only:
+                    results = self._sync_service.sync_due_subscriptions(
+                        trigger_type=SyncTriggerType.SCHEDULED,
+                    )
+                else:
+                    results = self._sync_service.sync_enabled_subscriptions(
+                        trigger_type=SyncTriggerType.SCHEDULED,
+                    )
 
-        self._store_and_notify(event)
+                # 网络调用期间可能已被 stop() → close() 拆毁资源，
+                # 此时不再触碰 DB 或通知 listener，直接退出
+                if self._stop_event.is_set():
+                    return
+
+                finished_at = datetime.now(timezone.utc)
+
+                errors = [r.error_message for r in results if r.error_message]
+                event = SchedulerTickEvent(
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    status="completed",
+                    results=results,
+                    error_message="; ".join(errors) if errors else None,
+                )
+
+            except Exception as exc:
+                if self._stop_event.is_set():
+                    return
+                logger.exception("Scheduler tick failed.")
+                finished_at = datetime.now(timezone.utc)
+                event = SchedulerTickEvent(
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    status="failed",
+                    error_message=str(exc),
+                )
+
+            self._store_and_notify(event)
+        finally:
+            self._tick_lock.release()
 
     def _store_and_notify(self, event: SchedulerTickEvent) -> None:
         """线程安全地存储最近事件并通知所有监听器。"""

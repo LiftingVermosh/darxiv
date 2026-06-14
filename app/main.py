@@ -68,14 +68,32 @@ class AppContext:
     # ------------------------------------------------------------------
 
     def close(self) -> None:
-        """关闭数据库连接并停止调度器。
+        """关闭数据库连接、停止调度器并释放 HTTP 客户端。
 
+        关闭顺序：调度器 → HTTP 客户端 → 数据库。
         重复调用是幂等的——已关闭的上下文上再次调用无副作用。
+
+        若调度器未能干净退出（``stop()`` 返回 ``False``），
+        资源不会被主动关闭——后台线程可能仍在使用它们。
+        由于线程为 daemon，进程退出时 OS 会自动回收。
         """
-        if not self._closed:
-            self.scheduler.stop()
-            self.connection.close()
+        if self._closed:
+            return
+
+        clean = self.scheduler.stop()
+        if not clean:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Scheduler did not stop cleanly; "
+                "skipping resource teardown to avoid use-after-close."
+            )
             self._closed = True
+            return
+
+        self.sync_service.close()
+        self.connection.close()
+        self._closed = True
 
     def __enter__(self) -> Self:
         return self

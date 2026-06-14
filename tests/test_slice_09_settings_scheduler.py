@@ -396,8 +396,9 @@ class SyncSchedulerTests(unittest.TestCase):
         self.scheduler.start()
         self.assertTrue(self.scheduler.is_running)
 
-        self.scheduler.stop()
+        clean = self.scheduler.stop()
         self.assertFalse(self.scheduler.is_running)
+        self.assertTrue(clean)  # 无阻塞 tick → 应干净退出
 
     def test_double_start_is_idempotent(self) -> None:
         self.scheduler.start()
@@ -1145,14 +1146,34 @@ class ExceptionRecoveryTests(unittest.TestCase):
         self.assertIsNone(svc.get("global_sync_interval_minutes"))
 
     def test_scheduler_stop_timeout(self) -> None:
-        """stop() 带超时参数。"""
+        """stop() 带超时参数，干净退出时返回 True。"""
         svc = SettingsService(self.conn)
         mock_sync = MagicMock(spec=SyncService)
         scheduler = SyncScheduler(mock_sync, svc)
 
         scheduler.start()
-        scheduler.stop(timeout=2.0)
+        clean = scheduler.stop(timeout=2.0)
         self.assertFalse(scheduler.is_running)
+        self.assertTrue(clean)  # 无阻塞 tick → 应干净退出
+
+    def test_close_skips_teardown_when_stop_times_out(self) -> None:
+        """stop() 返回 False 时 close() 跳过资源关闭（线程可能仍在使用它们）。"""
+        ctx = create_app_context(":memory:")
+        try:
+            with patch.object(ctx.scheduler, "stop", return_value=False):
+                with patch.object(ctx.sync_service, "close") as mock_svc_close:
+                    ctx.close()
+
+            # SyncService.close() 不应被调用
+            mock_svc_close.assert_not_called()
+            # AppContext 应标记为已关闭
+            self.assertTrue(ctx._closed)
+        finally:
+            # 真实清理
+            ctx._closed = False
+            ctx.scheduler.stop()
+            ctx.sync_service.close()
+            ctx.connection.close()
 
     def test_scheduler_listener_removal_idempotent(self) -> None:
         """移除不存在的 listener 不抛异常。"""
@@ -1164,6 +1185,49 @@ class ExceptionRecoveryTests(unittest.TestCase):
             pass
 
         scheduler.remove_tick_listener(_dummy)  # 不应崩溃
+
+    def test_tick_aborts_mid_flight_when_stopped(self) -> None:
+        """tick 执行中被 stop() → 网络返回后不应再触碰 DB / listener。"""
+        svc = SettingsService(self.conn)
+        mock_sync = MagicMock(spec=SyncService)
+        mock_sync.sync_enabled_subscriptions.return_value = []
+
+        scheduler = SyncScheduler(mock_sync, svc)
+        events: list[SchedulerTickEvent] = []
+
+        def _cb(event: SchedulerTickEvent) -> None:
+            events.append(event)
+
+        scheduler.add_tick_listener(_cb)
+
+        # 在 sync 调用返回后立即设置停止信号，模拟 close() 中途调用
+        original = mock_sync.sync_enabled_subscriptions
+
+        def _side_effect(*args, **kwargs):
+            scheduler._stop_event.set()  # 模拟 stop() → close()
+            return original(*args, **kwargs)
+
+        mock_sync.sync_enabled_subscriptions.side_effect = _side_effect
+
+        scheduler._do_tick(use_due_only=False)
+
+        # 应只有 "running" 事件，completed/failed 被 _stop_event 检查拦截
+        statuses = [e.status for e in events]
+        self.assertIn("running", statuses)
+        self.assertNotIn("completed", statuses)
+        self.assertNotIn("failed", statuses)
+        # tick_lock 应已释放（不持锁退出）
+        self.assertFalse(scheduler._tick_lock.locked())
+
+    def test_sync_service_close_releases_http_client(self) -> None:
+        """SyncService.close() 可安全重复调用。"""
+        ctx = create_app_context(":memory:")
+        try:
+            ctx.sync_service.close()
+            ctx.sync_service.close()  # 幂等
+        finally:
+            ctx.scheduler.stop()
+            ctx.connection.close()
 
 
 # ============================================================================

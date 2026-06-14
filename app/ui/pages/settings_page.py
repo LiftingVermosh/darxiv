@@ -87,9 +87,16 @@ def build_settings_view(ctx: AppContext, page: ft.Page) -> ft.View:
         ctx.scheduler.remove_tick_listener(_previous_listener)
 
     def _on_scheduler_tick(event: SchedulerTickEvent) -> None:
-        """调度器每次 tick 完成时刷新状态展示（在后台线程调用）。"""
-        _refresh_scheduler_status()
-        page.update()
+        """调度器每次 tick 完成时刷新状态展示。
+
+        在调度器后台线程中被调用；Flet 的 ``page.update()`` 在
+        desktop 模式下是线程安全的（内部通过消息队列派发）。
+        """
+        try:
+            _refresh_scheduler_status()
+            page.update()
+        except Exception:
+            pass  # 防御性保护，避免单个 listener 异常影响调度器
 
     ctx.scheduler.add_tick_listener(_on_scheduler_tick)
     page._settings_tick_listener = _on_scheduler_tick  # type: ignore[attr-defined]

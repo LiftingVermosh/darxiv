@@ -74,6 +74,9 @@ class AppShell:
             on_change=self._on_nav_change,
         )
 
+        # -- 窗口关闭时释放资源 --
+        page.window.on_close = self._on_window_close
+
         # -- 调度器自动启动 --
         self._start_scheduler_if_enabled()
 
@@ -87,6 +90,11 @@ class AppShell:
     # ------------------------------------------------------------------
     # Scheduler lifecycle
     # ------------------------------------------------------------------
+
+    def _on_window_close(self, e) -> None:
+        """窗口关闭时释放数据库、HTTP 客户端并停止调度器。"""
+        if self.ctx is not None:
+            self.ctx.close()
 
     def _start_scheduler_if_enabled(self) -> None:
         """若设置中启用自动同步，则启动后台调度器。"""

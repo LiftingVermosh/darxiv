@@ -63,6 +63,14 @@ class SyncService:
         self._sync_run_repo = SyncRunRepository(connection)
         self._arxiv_client = arxiv_client or ArxivClient()
 
+    def close(self) -> None:
+        """关闭底层 HTTP 客户端，释放连接资源。
+
+        调用后本实例不可再用于同步操作。
+        重复调用是幂等的。
+        """
+        self._arxiv_client.close()
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------

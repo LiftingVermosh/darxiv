@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-import threading
+import asyncio
 
 import flet as ft
 
@@ -106,9 +106,13 @@ def build_subscriptions_view(ctx: AppContext, page: ft.Page) -> ft.View:
                 btn.icon = ft.Icons.HOURGLASS_EMPTY
             page.update()
 
-            def _run_sync() -> None:
+            async def _do_sync() -> None:
+                """在 executor 线程执行阻塞同步，await 后回到主线程更新 UI。"""
+                loop = asyncio.get_running_loop()
                 try:
-                    result = ctx.subscription_service.sync_subscription(sub.id)
+                    result = await loop.run_in_executor(
+                        None, ctx.subscription_service.sync_subscription, sub.id
+                    )
                     show_notification(
                         page,
                         f"Sync '{sub.name}': "
@@ -125,7 +129,7 @@ def build_subscriptions_view(ctx: AppContext, page: ft.Page) -> ft.View:
                         btn.icon = ft.Icons.SYNC
                     _load_subscriptions()
 
-            threading.Thread(target=_run_sync, daemon=True).start()
+            page.run_task(_do_sync)
 
         def _on_edit(e: ft.ControlEvent) -> None:
             open_subscription_dialog(
