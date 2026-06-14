@@ -437,7 +437,7 @@ class FilterPanelCallbackTests(unittest.TestCase):
         buttons: list = []
 
         def _walk(c: ft.Control) -> None:
-            if isinstance(c, (ft.ElevatedButton, ft.OutlinedButton, ft.TextButton)):
+            if isinstance(c, (ft.FilledButton, ft.OutlinedButton, ft.TextButton)):
                 buttons.append(c)
             if hasattr(c, "controls"):
                 for child in c.controls:  # type: ignore[union-attr]
@@ -450,7 +450,7 @@ class FilterPanelCallbackTests(unittest.TestCase):
 
     def _trigger_apply(self, panel: ft.Container) -> None:
         for btn in self._walk_buttons(panel):
-            if isinstance(btn, ft.ElevatedButton):
+            if isinstance(btn, ft.FilledButton):
                 btn.on_click(None)  # type: ignore[arg-type]
                 return
 
