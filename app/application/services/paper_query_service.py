@@ -1,13 +1,22 @@
 from __future__ import annotations
 
+import json
 import sqlite3
+from typing import Any
 
 from app.application.dto.paper_detail import PaperDetailDTO
 from app.application.dto.paper_list_filters import PaperListFilters
 from app.application.dto.paper_list_item import PaperListItemDTO
+from app.application.dto.query_debug_info import QueryDebugInfo
 from app.domain.models.paper import Paper
 from app.domain.models.paper_status import PaperStatus
-from app.infrastructure.db.repositories.paper_repository import PaperRepository
+from app.infrastructure.db.repositories.paper_query_repository import (
+    PaperQueryRepository,
+)
+from app.infrastructure.db.repositories.paper_repository import (
+    PaperRepository,
+    _parse_dt,
+)
 from app.infrastructure.db.repositories.paper_status_repository import (
     PaperStatusRepository,
 )
@@ -18,6 +27,9 @@ class PaperQueryService:
 
     负责将 ``papers`` 与 ``paper_statuses`` 表的数据聚合为稳定的 DTO，
     避免 UI 层直接拼装 repository 结果。
+
+    列表查询通过 :class:`PaperQueryRepository` 以单次 LEFT JOIN 完成，
+    所有过滤条件下推到 SQL 层，消除 N+1 状态查询。
 
     仅执行查询与聚合，不承担写操作；所有写操作由
     :class:`~app.application.services.sync_service.SyncService` 和
@@ -31,20 +43,33 @@ class PaperQueryService:
         self._conn = connection
         self._paper_repo = PaperRepository(connection)
         self._status_repo = PaperStatusRepository(connection)
+        self._query_repo = PaperQueryRepository(connection)
+        self._last_debug_info: QueryDebugInfo | None = None
 
     # ------------------------------------------------------------------
     # Public query API
     # ------------------------------------------------------------------
 
     def list_papers(
-        self, filters: PaperListFilters | None = None
+        self,
+        filters: PaperListFilters | None = None,
+        *,
+        sort_by: str = "updated_at",
+        sort_order: str = "DESC",
+        offset: int | None = None,
     ) -> list[PaperListItemDTO]:
         """论文列表主页入口，支持按条件组合过滤。
 
         默认按 ``updated_at DESC`` 排序；空库时返回空列表。
 
+        所有过滤条件均下推到 SQL（零 Python 侧二次过滤），
+        状态通过 LEFT JOIN 批量预取，消除 N+1 查询。
+
         Args:
             filters: 可选的组合过滤条件；``None`` 时返回全部论文
+            sort_by: 排序字段（``updated_at`` / ``published_at`` / ``title``）
+            sort_order: ``ASC`` 或 ``DESC``
+            offset: 可选的偏移量，配合 ``filters.limit`` 实现分页
 
         Returns:
             匹配过滤条件的 :class:`~PaperListItemDTO` 列表
@@ -52,27 +77,31 @@ class PaperQueryService:
         if filters is None:
             filters = PaperListFilters()
 
-        # 从仓储层获取基础数据集
-        if filters.category is not None:
-            papers = self._paper_repo.list_by_category(filters.category)
-        else:
-            papers = self._paper_repo.list_all()
+        # 通过只读仓储执行单次 JOIN 查询
+        rows = self._query_repo.query_papers(
+            filters,
+            sort_by=sort_by,
+            sort_order=sort_order,
+            offset=offset,
+        )
 
-        # 逐条聚合状态并应用 Python 侧过滤
-        results: list[PaperListItemDTO] = []
-        for paper in papers:
-            list_item = self._merge_to_list_item(paper)
-            if self._matches_filters(list_item, paper, filters):
-                results.append(list_item)
+        # 组装 DTO 列表
+        results = [self._row_to_list_item(r) for r in rows]
 
-        # 应用 limit（结果已按 updated_at DESC 排序，来自 SQL）
-        if filters.limit is not None and len(results) > filters.limit:
-            results = results[: filters.limit]
+        # 记录诊断信息（所有过滤均已下推 SQL，Python 侧无二次过滤）
+        self._last_debug_info = QueryDebugInfo(
+            sql_row_count=len(rows),
+            filter_applied_in_sql=self._collect_applied_filters(filters),
+            filter_applied_in_python=[],
+            total_matches=self._query_repo.count_papers(filters),
+        )
 
         return results
 
     def get_paper_detail(self, arxiv_id: str) -> PaperDetailDTO | None:
         """论文详情页主入口，返回论文完整元数据与用户状态聚合视图。
+
+        通过 LEFT JOIN 单次查询获取论文与状态，消除逐条状态查询。
 
         Args:
             arxiv_id: 论文 ID
@@ -80,12 +109,10 @@ class PaperQueryService:
         Returns:
             聚合后的 :class:`~PaperDetailDTO`；若论文不存在则返回 ``None``
         """
-        paper = self._paper_repo.get(arxiv_id)
-        if paper is None:
+        row = self._query_repo.get_paper_with_status(arxiv_id)
+        if row is None:
             return None
-
-        status = self._status_repo.get(arxiv_id)
-        return self._merge_to_detail(paper, status)
+        return self._row_to_detail(row)
 
     def list_starred_papers(
         self, limit: int | None = None
@@ -102,118 +129,106 @@ class PaperQueryService:
             PaperListFilters(is_starred=True, limit=limit)
         )
 
-    # ------------------------------------------------------------------
-    # Internal helpers: merge paper + status → DTO
-    # ------------------------------------------------------------------
+    @property
+    def last_query_debug_info(self) -> QueryDebugInfo | None:
+        """最近一次 :meth:`list_papers` 调用的诊断信息。
 
-    def _merge_to_list_item(self, paper: Paper) -> PaperListItemDTO:
-        """将 :class:`Paper` 与对应的用户状态合并为列表 DTO。
-
-        若状态记录缺失，自动补全默认状态视图。
+        可用于测试断言与性能调优；若尚未执行过查询则返回 ``None``。
         """
-        status = self._status_repo.get(paper.arxiv_id)
-        if status is None:
-            status = self._make_default_status(paper.arxiv_id)
+        return self._last_debug_info
+
+    # ------------------------------------------------------------------
+    # Internal helpers: row → DTO
+    # ------------------------------------------------------------------
+
+    def _row_to_list_item(self, row: dict[str, Any]) -> PaperListItemDTO:
+        """将 JOIN 查询行（dict）转换为列表 DTO。
+
+        状态字段已通过 COALESCE 在 SQL 层处理默认值，
+        无需额外补全。
+        """
+        authors = json.loads(row["authors_json"])
 
         return PaperListItemDTO(
-            arxiv_id=paper.arxiv_id,
-            title=paper.title,
-            authors_preview=self._build_authors_preview(paper.authors),
-            primary_category=paper.primary_category,
-            categories=paper.categories,
-            published_at=paper.published_at,
-            updated_at=paper.updated_at,
-            is_starred=status.is_starred,
-            is_read=status.is_read,
-            is_hidden=status.is_hidden,
+            arxiv_id=row["arxiv_id"],
+            title=row["title"],
+            authors_preview=self._build_authors_preview(authors),
+            primary_category=row["primary_category"],
+            categories=json.loads(row["categories_json"]),
+            published_at=_parse_dt(row["published_at"]),
+            updated_at=_parse_dt(row["updated_at"]),
+            is_starred=bool(row["is_starred"]),
+            is_read=bool(row["is_read"]),
+            is_hidden=bool(row["is_hidden"]),
         )
 
-    def _merge_to_detail(
-        self, paper: Paper, status: PaperStatus | None
-    ) -> PaperDetailDTO:
-        """将 :class:`Paper` 与可选的 :class:`PaperStatus` 合并为详情 DTO。
+    def _row_to_detail(self, row: dict[str, Any]) -> PaperDetailDTO:
+        """将 JOIN 查询行（dict）转换为详情 DTO。
 
-        若状态记录缺失，自动补全默认状态视图。
+        可空字段（rating / note / tags_json / status_updated_at）在无
+        paper_statuses 记录时为 NULL，需按默认值处理。
         """
-        if status is None:
-            status = self._make_default_status(paper.arxiv_id)
+        tags: list[str] = []
+        if row.get("tags_json"):
+            try:
+                tags = json.loads(row["tags_json"])
+            except (json.JSONDecodeError, TypeError):
+                tags = []
 
         return PaperDetailDTO(
-            arxiv_id=paper.arxiv_id,
-            latest_version=paper.version,
-            title=paper.title,
-            abstract=paper.abstract,
-            authors=paper.authors,
-            primary_category=paper.primary_category,
-            categories=paper.categories,
-            published_at=paper.published_at,
-            updated_at=paper.updated_at,
-            pdf_url=paper.pdf_url,
-            abs_url=paper.abs_url,
-            comment=paper.comment,
-            journal_ref=paper.journal_ref,
-            doi=paper.doi,
-            is_starred=status.is_starred,
-            is_read=status.is_read,
-            is_hidden=status.is_hidden,
-            rating=status.rating,
-            note=status.note,
-            tags=status.tags,
+            arxiv_id=row["arxiv_id"],
+            latest_version=row["latest_version"],
+            title=row["title"],
+            abstract=row["abstract"],
+            authors=json.loads(row["authors_json"]),
+            primary_category=row["primary_category"],
+            categories=json.loads(row["categories_json"]),
+            published_at=_parse_dt(row["published_at"]),
+            updated_at=_parse_dt(row["updated_at"]),
+            pdf_url=row.get("pdf_url"),
+            abs_url=row["abs_url"],
+            comment=row.get("comment"),
+            journal_ref=row.get("journal_ref"),
+            doi=row.get("doi"),
+            is_starred=bool(row["is_starred"]),
+            is_read=bool(row["is_read"]),
+            is_hidden=bool(row["is_hidden"]),
+            rating=row.get("rating"),
+            note=row.get("note"),
+            tags=tags,
         )
 
     # ------------------------------------------------------------------
-    # Internal helpers: filter predicates
+    # Internal helpers: diagnostics
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _matches_filters(
-        list_item: PaperListItemDTO,
-        paper: Paper,
-        filters: PaperListFilters,
-    ) -> bool:
-        """检查由 *paper* 与 *list_item* 构成的聚合行是否通过所有筛选条件。
-
-        返回 ``False`` 表示该行不满足过滤条件，应从结果中排除。
-        """
-        # 关键词匹配：标题或摘要大小写不敏感包含
+    def _collect_applied_filters(filters: PaperListFilters) -> list[str]:
+        """收集所有在 SQL 层生效的过滤字段名。"""
+        applied: list[str] = []
+        if filters.category is not None:
+            applied.append("category")
         if filters.keyword is not None:
-            kw = filters.keyword.lower()
-            if (
-                kw not in paper.title.lower()
-                and kw not in paper.abstract.lower()
-            ):
-                return False
-
-        # 作者匹配：大小写不敏感子串
+            applied.append("keyword")
         if filters.author is not None:
-            author_lower = filters.author.lower()
-            if not any(author_lower in a.lower() for a in paper.authors):
-                return False
-
-        # 状态过滤
-        if filters.is_starred is not None and list_item.is_starred != filters.is_starred:
-            return False
-
-        if filters.is_read is not None and list_item.is_read != filters.is_read:
-            return False
-
-        if filters.is_hidden is not None and list_item.is_hidden != filters.is_hidden:
-            return False
-
-        # 日期范围过滤
-        if filters.published_from is not None and paper.published_at < filters.published_from:
-            return False
-
-        if filters.published_to is not None and paper.published_at > filters.published_to:
-            return False
-
-        if filters.updated_from is not None and paper.updated_at < filters.updated_from:
-            return False
-
-        if filters.updated_to is not None and paper.updated_at > filters.updated_to:
-            return False
-
-        return True
+            applied.append("author")
+        if filters.is_starred is not None:
+            applied.append("is_starred")
+        if filters.is_read is not None:
+            applied.append("is_read")
+        if filters.is_hidden is not None:
+            applied.append("is_hidden")
+        if filters.published_from is not None:
+            applied.append("published_from")
+        if filters.published_to is not None:
+            applied.append("published_to")
+        if filters.updated_from is not None:
+            applied.append("updated_from")
+        if filters.updated_to is not None:
+            applied.append("updated_to")
+        if filters.limit is not None:
+            applied.append("limit")
+        return applied
 
     # ------------------------------------------------------------------
     # Internal helpers: presentation

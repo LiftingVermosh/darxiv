@@ -125,6 +125,56 @@ class SyncService:
                 )
         return results
 
+    def sync_due_subscriptions(
+        self,
+        trigger_type: SyncTriggerType = SyncTriggerType.SCHEDULED,
+    ) -> list[SyncResultDTO]:
+        """对所有已启用且到达各自同步间隔的订阅执行同步。
+
+        与 :meth:`sync_enabled_subscriptions` 不同，本方法会逐项检查
+        ``last_synced_at + sync_interval_minutes`` 是否已到期，
+        未到期的订阅会被跳过。
+
+        ``last_synced_at`` 为 ``None``（从未同步）的订阅视为立即到期。
+
+        Args:
+            trigger_type: 触发类型（默认为定时触发）
+        """
+        results: list[SyncResultDTO] = []
+        now = datetime.now(timezone.utc)
+
+        for sub in self._sub_repo.list_enabled():
+            # -- 检查是否到达同步间隔 --
+            if sub.last_synced_at is not None:
+                try:
+                    last = datetime.fromisoformat(sub.last_synced_at)
+                    elapsed_minutes = (now - last).total_seconds() / 60.0
+                    if elapsed_minutes < sub.sync_interval_minutes:
+                        continue  # 未到间隔，跳过
+                except (ValueError, TypeError):
+                    # 时间戳损坏视为从未同步，继续执行
+                    pass
+
+            try:
+                result = self._sync_one(sub, trigger_type)
+                results.append(result)
+            except Exception as exc:
+                now_err = datetime.now(timezone.utc)
+                results.append(
+                    SyncResultDTO(
+                        subscription_id=sub.id,
+                        subscription_name=sub.name,
+                        status=SyncRunStatus.FAILED,
+                        fetched_count=0,
+                        inserted_count=0,
+                        updated_count=0,
+                        started_at=now_err,
+                        finished_at=now_err,
+                        error_message=_truncate_error(str(exc)),
+                    )
+                )
+        return results
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------

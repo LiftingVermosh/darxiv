@@ -46,6 +46,7 @@ class Subscription(BaseModel):
         authors (list[str]): 关注的特定作者列表
         query_text (str | None): 预留字段，用于存储复杂的原始 API 查询字符串
         sync_interval_minutes (int): 同步频率限制（分钟计，默认 1440 为每天一次）
+        last_synced_at (str | None): 最近一次同步完成的 UTC ISO 8601 时间戳
     """
     model_config = ConfigDict(extra="forbid")
     id: str
@@ -57,16 +58,17 @@ class Subscription(BaseModel):
     authors: list[str] = Field(default_factory=list)
     query_text: str | None = None
     sync_interval_minutes: int = Field(default=1440, gt=0)
+    last_synced_at: str | None = None
 
     @field_validator("id", "name", mode="before")
     @classmethod
     def normalize_required_text(cls, value: str) -> str:
         return _normalize_required_text(value, field_name="value")
 
-    @field_validator("query_text", mode="before")
+    @field_validator("query_text", "last_synced_at", mode="before")
     @classmethod
     def normalize_optional_text(cls, value: str | None) -> str | None:
-        return _normalize_optional_text(value, field_name="query_text")
+        return _normalize_optional_text(value, field_name="value")
 
     @field_validator("categories", mode="before")
     @classmethod

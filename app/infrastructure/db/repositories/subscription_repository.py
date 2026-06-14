@@ -22,6 +22,7 @@ def _row_to_subscription(row: sqlite3.Row) -> Subscription:
         authors=json.loads(row["authors_json"]),
         query_text=row["query_text"],
         sync_interval_minutes=row["sync_interval_minutes"],
+        last_synced_at=row["last_synced_at"],
     )
 
 
@@ -109,7 +110,7 @@ class SubscriptionRepository:
             subscription,
             created_at=now,
             updated_at=now,
-            last_synced_at=None,
+            last_synced_at=subscription.last_synced_at,
         )
         self._conn.execute(_SAVE_SQL, params)
 

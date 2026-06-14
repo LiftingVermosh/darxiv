@@ -3,8 +3,8 @@
 提供多条件筛选的论文列表视图，支持快捷状态切换与详情页跳转。
 
 状态切换优化：
-- 收藏/已读切换：更新本地缓存 DTO + 从缓存重建 UI（无 DB 查询）
-- 隐藏切换且当前隐藏论文被过滤：触发全量 DB 重载（卡片消失）
+- 当前筛选对被切换字段无约束时：更新本地缓存 DTO + 从缓存重建 UI（零 DB 查询）
+- 当前筛选对被切换字段有约束时：触发全量 DB 重载，保证列表与筛选条件一致
 - 同步后刷新：通过 ``refresh_current_list()`` 回调触发重载
 """
 
@@ -158,16 +158,18 @@ def build_dashboard_view(ctx: AppContext, page: ft.Page) -> ft.View:
                     elif field == "is_hidden":
                         cached.is_hidden = value
 
-                # 隐藏状态切换 + 当前过滤隐藏 → 需要 DB 重载
-                hides_hidden = (
-                    current_filters.is_hidden is not None
-                    and not current_filters.is_hidden
-                )
-                if field == "is_hidden" and hides_hidden:
+                # 若当前筛选对切换字段有约束，缓存中可能残留不再匹配的卡片，
+                # 必须回源 DB 重载以保证列表与筛选条件一致。
+                _status_filter_active: dict[str, bool] = {
+                    "is_starred": current_filters.is_starred is not None,
+                    "is_read": current_filters.is_read is not None,
+                    "is_hidden": current_filters.is_hidden is not None,
+                }
+                if _status_filter_active.get(field, False):
                     _load_papers()
                     return
 
-                # 其他情况：从缓存重建 UI（零 DB 查询）
+                # 无约束时：从缓存重建 UI（零 DB 查询）
                 _render_from_cache()
             except PaperNotFoundError:
                 show_notification(page, "Paper not found.", is_error=True)
