@@ -47,12 +47,10 @@ class AppShell:
         """
         self.page = page
 
-        # -- 延迟解析运行时配置（仅在 Flet 真正启动时） --
         if self._config is None:
             self._config = AppRuntimeConfig.create()
         config = self._config
 
-        # -- 装配应用上下文 --
         try:
             self.ctx = create_app_context(config.db_path)
             logger.info("AppContext created successfully (db=%s).", config.db_path)
@@ -61,7 +59,6 @@ class AppShell:
             self._show_fatal_error(page, str(exc))
             return
 
-        # -- 页面级配置 --
         page.title = "Paper Research"
         page.theme_mode = ft.ThemeMode.LIGHT
         page.window.width = 1200
@@ -69,15 +66,12 @@ class AppShell:
         page.window.min_width = 800
         page.window.min_height = 600
 
-        # -- 主题配色 --
         page.theme = ft.Theme(
             color_scheme_seed=ft.Colors.BLUE,
         )
 
-        # -- 路由 --
         page.on_route_change = self._on_route_change
 
-        # -- 底部导航栏 --
         self._nav_bar = ft.NavigationBar(
             destinations=[
                 ft.NavigationBarDestination(
@@ -97,13 +91,10 @@ class AppShell:
         )
         page.navigation_bar = self._nav_bar
 
-        # -- 窗口关闭时释放资源 --
         page.window.on_close = self._on_window_close
 
-        # -- 调度器自动启动 --
         self._start_scheduler_if_enabled()
 
-        # -- 初始路由（恢复上次打开的页面） --
         last_page = self.ctx.settings_service.get("last_open_page")
         if last_page and isinstance(last_page, str) and last_page.startswith("/"):
             logger.debug("Restoring last page: %s", last_page)
@@ -112,10 +103,6 @@ class AppShell:
             page.go("/dashboard")
 
         logger.info("AppShell initialized successfully.")
-
-    # ------------------------------------------------------------------
-    # Fatal error handling
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _show_fatal_error(page: ft.Page, error_message: str) -> None:
@@ -175,10 +162,6 @@ class AppShell:
             )
         )
 
-    # ------------------------------------------------------------------
-    # Scheduler lifecycle
-    # ------------------------------------------------------------------
-
     def _on_window_close(self, e) -> None:
         """窗口关闭时释放数据库、HTTP 客户端并停止调度器。"""
         logger.info("Window close requested.")
@@ -196,10 +179,6 @@ class AppShell:
         else:
             logger.debug("Auto-sync disabled — scheduler not started.")
 
-    # ------------------------------------------------------------------
-    # Route handling
-    # ------------------------------------------------------------------
-
     def _on_route_change(self, e: ft.RouteChangeEvent) -> None:
         """根据当前路由构建并切换视图。"""
         if self.page is None or self.ctx is None:
@@ -208,10 +187,8 @@ class AppShell:
         route = self.page.route
         self.page.views.clear()
 
-        # -- 清理上一页面的调度器监听器 --
         self._cleanup_settings_listener()
 
-        # 解析路由并构建对应视图
         if route == "/dashboard" or route == "/":
             view = build_dashboard_view(self.ctx, self.page)
             if self._nav_bar is not None:
@@ -231,18 +208,12 @@ class AppShell:
                 view.navigation_bar = self._nav_bar
             self._save_last_page(route)
         elif route.startswith("/subscriptions/") and route.endswith("/papers"):
-            # /subscriptions/{id}/papers
             sub_id = route.split("/subscriptions/", 1)[1].rsplit("/papers", 1)[0]
-            view = build_subscription_papers_view(
-                self.ctx, self.page, sub_id
-            )
-            # 订阅论文列表是瞬时页面，恢复时回到订阅列表
+            view = build_subscription_papers_view(self.ctx, self.page, sub_id)
         elif route.startswith("/paper/"):
             arxiv_id = route.split("/paper/", 1)[1]
             view = build_paper_detail_view(self.ctx, self.page, arxiv_id)
-            # 论文详情页是瞬时页面，不作为恢复目标
         else:
-            # 未知路由 → 重定向到 Dashboard
             logger.warning("Unknown route '%s', redirecting to /dashboard.", route)
             self.page.go("/dashboard")
             return
@@ -283,3 +254,4 @@ class AppShell:
             self.page.go("/subscriptions")
         elif index == 2:
             self.page.go("/settings")
+

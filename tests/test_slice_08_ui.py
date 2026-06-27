@@ -767,6 +767,16 @@ class AppShellTests(unittest.TestCase):
             self.page.on_route_change(MagicMock())  # type: ignore[call-arg]
         self.assertGreater(len(self.page.views), 0)
 
+
+    def test_route_dashboard_keeps_view_visible(self) -> None:
+        self._boot()
+        self.page.route = "/dashboard"
+        if self.page.on_route_change:
+            self.page.on_route_change(MagicMock())  # type: ignore[call-arg]
+        view = self.page.views[-1]
+        self.assertEqual(view.opacity, 1.0)
+        self.assertIsNone(view.offset)
+
     def test_route_subscriptions_builds_view(self) -> None:
         self._boot()
         self.page.route = "/subscriptions"

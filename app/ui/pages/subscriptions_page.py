@@ -19,6 +19,7 @@ from app.application.services.exceptions import (
 from app.domain.models import Subscription
 from app.main import AppContext
 from app.ui.components.loading_overlay import build_loading_view
+from app.ui.components.page_content_transition import PageContentTransition
 from app.ui.components.notification_bar import show_notification
 from app.ui.components.subscription_form import open_subscription_dialog
 
@@ -291,7 +292,7 @@ def build_subscriptions_view(ctx: AppContext, page: ft.Page) -> ft.View:
 
     return ft.View(
         route="/subscriptions",
-        controls=[content_area],
+        controls=[PageContentTransition(content_area)],
         appbar=ft.AppBar(
             title=ft.Text("Subscriptions"),
             actions=[
@@ -352,3 +353,4 @@ def _build_error_view(message: str) -> ft.Column:
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         expand=True,
     )
+

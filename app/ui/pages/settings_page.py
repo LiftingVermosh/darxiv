@@ -12,6 +12,7 @@ from app.application.dto.app_settings_dto import AppSettingsDTO
 from app.application.dto.scheduler_tick_event import SchedulerTickEvent
 from app.main import AppContext
 from app.ui.components.notification_bar import show_notification
+from app.ui.components.page_content_transition import PageContentTransition
 
 
 # ---------------------------------------------------------------------------
@@ -41,10 +42,8 @@ def build_settings_view(ctx: AppContext, page: ft.Page) -> ft.View:
         配置完成的 :class:`ft.View`
     """
 
-    # -- 加载当前设置 --
     current_settings = ctx.settings_service.get_all()
 
-    # -- 控件引用 --
     auto_sync_switch = ft.Switch(
         value=current_settings.auto_sync_enabled,
         label="Enable Auto-Sync",
@@ -73,7 +72,6 @@ def build_settings_view(ctx: AppContext, page: ft.Page) -> ft.View:
         label="Show Hidden Papers by Default",
     )
 
-    # -- 调度器状态显示 --
     scheduler_status_text = ft.Text(
         _scheduler_status_label(ctx.scheduler.last_tick_event),
         size=13,
@@ -81,32 +79,24 @@ def build_settings_view(ctx: AppContext, page: ft.Page) -> ft.View:
 
     last_sync_results = ft.ListView(spacing=4, expand=True, height=200)
 
-    # -- 调度器实时监听（每次重建视图时更换，避免重复注册） --
     _previous_listener = getattr(page, "_settings_tick_listener", None)
     if _previous_listener is not None:
         ctx.scheduler.remove_tick_listener(_previous_listener)
 
     def _on_scheduler_tick(event: SchedulerTickEvent) -> None:
-        """调度器每次 tick 完成时刷新状态展示。
-
-        在调度器后台线程中被调用；Flet 的 ``page.update()`` 在
-        desktop 模式下是线程安全的（内部通过消息队列派发）。
-        """
+        """调度器每次 tick 完成时刷新状态展示。"""
         try:
             _refresh_scheduler_status()
             page.update()
         except Exception:
-            pass  # 防御性保护，避免单个 listener 异常影响调度器
+            pass
 
     ctx.scheduler.add_tick_listener(_on_scheduler_tick)
     page._settings_tick_listener = _on_scheduler_tick  # type: ignore[attr-defined]
 
-    # -- 回调 --
-
     def _on_save(e: ft.ControlEvent) -> None:
         """收集控件值并持久化设置。"""
         try:
-            # 解析同步间隔
             raw = interval_dropdown.value
             if raw == "__none__" or raw is None:
                 interval = None
@@ -122,7 +112,6 @@ def build_settings_view(ctx: AppContext, page: ft.Page) -> ft.View:
             )
             ctx.settings_service.update(new_settings)
 
-            # 控制调度器启停
             if auto_sync_switch.value and not ctx.scheduler.is_running:
                 ctx.scheduler.start()
             elif not auto_sync_switch.value and ctx.scheduler.is_running:
@@ -140,45 +129,40 @@ def build_settings_view(ctx: AppContext, page: ft.Page) -> ft.View:
         last_sync_results.controls = _build_sync_result_rows(event)
         page.update()
 
-    # -- 初始渲染 --
     last_sync_results.controls = _build_sync_result_rows(
         ctx.scheduler.last_tick_event
     )
 
+    main_content = ft.Column(
+        controls=[
+            ft.Text("Auto Sync", size=18, weight=ft.FontWeight.BOLD),
+            ft.Text(
+                "When enabled, the app periodically checks for new papers "
+                "across all enabled subscriptions.",
+                size=13,
+                color=ft.Colors.GREY_600,
+            ),
+            auto_sync_switch,
+            interval_dropdown,
+            ft.Divider(),
+            ft.Text("Display", size=18, weight=ft.FontWeight.BOLD),
+            show_hidden_switch,
+            ft.Divider(),
+            ft.FilledButton("Save Settings", on_click=_on_save),
+            ft.Divider(),
+            ft.Text("Scheduler Status", size=18, weight=ft.FontWeight.BOLD),
+            scheduler_status_text,
+            ft.Text("Recent Sync Results", size=14, weight=ft.FontWeight.W_500),
+            last_sync_results,
+        ],
+        spacing=12,
+        scroll=ft.ScrollMode.AUTO,
+        expand=True,
+    )
+
     return ft.View(
         route="/settings",
-        controls=[
-            ft.Column(
-                controls=[
-                    # ---- 自动同步 ----
-                    ft.Text("Auto Sync", size=18, weight=ft.FontWeight.BOLD),
-                    ft.Text(
-                        "When enabled, the app periodically checks for new papers "
-                        "across all enabled subscriptions.",
-                        size=13,
-                        color=ft.Colors.GREY_600,
-                    ),
-                    auto_sync_switch,
-                    interval_dropdown,
-                    ft.Divider(),
-                    # ---- 显示偏好 ----
-                    ft.Text("Display", size=18, weight=ft.FontWeight.BOLD),
-                    show_hidden_switch,
-                    ft.Divider(),
-                    # ---- 保存按钮 ----
-                    ft.FilledButton("Save Settings", on_click=_on_save),
-                    ft.Divider(),
-                    # ---- 调度器状态 ----
-                    ft.Text("Scheduler Status", size=18, weight=ft.FontWeight.BOLD),
-                    scheduler_status_text,
-                    ft.Text("Recent Sync Results", size=14, weight=ft.FontWeight.W_500),
-                    last_sync_results,
-                ],
-                spacing=12,
-                scroll=ft.ScrollMode.AUTO,
-                expand=True,
-            ),
-        ],
+        controls=[PageContentTransition(main_content)],
         appbar=ft.AppBar(
             title=ft.Text("Settings"),
         ),

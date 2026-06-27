@@ -24,6 +24,7 @@ from app.application.services.exceptions import (
 from app.main import AppContext
 from app.ui.components.filter_panel import build_filter_panel
 from app.ui.components.loading_overlay import build_loading_view
+from app.ui.components.page_content_transition import PageContentTransition
 from app.ui.components.notification_bar import show_notification
 from app.ui.components.paper_status_bar import build_status_bar
 
@@ -291,8 +292,16 @@ def build_dashboard_view(ctx: AppContext, page: ft.Page) -> ft.View:
     v = ft.View(
         route="/dashboard",
         controls=[
-            build_filter_panel(current_filters, on_apply=_on_filter_apply),
-            content_area,
+            PageContentTransition(
+                ft.Column(
+                    controls=[
+                        build_filter_panel(current_filters, on_apply=_on_filter_apply),
+                        content_area,
+                    ],
+                    spacing=0,
+                    expand=True,
+                )
+            ),
         ],
         appbar=ft.AppBar(
             title=ft.Text("Dashboard"),
@@ -355,4 +364,5 @@ def _build_error_view(message: str) -> ft.Column:
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         expand=True,
     )
+
 
