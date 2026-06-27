@@ -1,87 +1,87 @@
-# Release Notes — v0.1.0 (MVP)
+# 发布说明 — AI 跑的
 
-## Overview
+## 概述
 
-Paper Research v0.1.0 is the first deliverable desktop MVP for tracking arXiv papers. This release closes the initial development plan (Slices 01–11), forming a self-contained, installable, and verifiable application.
+Paper Research v0.1.0 是一个面向 arXiv 论文追踪的轻量级~~shit 山~~ app。
 
-## What's Included
+## 包含内容
 
-### Core Features
+### 核心功能
 
-- **arXiv Paper Sync** — Subscribe to topics (by category, keyword, author, or raw query) and fetch new papers from the arXiv API.
-- **Dashboard** — Browse your paper collection with keyword/category/status filters.
-- **Paper Detail** — View full metadata (title, abstract, authors, categories, DOI, journal ref) with external links to arXiv and PDF.
-- **Paper Status** — Mark papers as starred, read, or hidden; assign ratings (1–5 stars), notes, and tags.
-- **Subscriptions Management** — Create, edit, delete, enable/disable, and manually trigger sync for individual subscriptions.
-- **Auto-Sync Scheduler** — Background thread that periodically syncs all enabled subscriptions. Configurable global interval or per-subscription intervals.
-- **Settings** — Toggle auto-sync on/off, choose sync interval preset, toggle hidden paper visibility.
+- **arXiv 论文同步** — 订阅指定主题（按分类、关键词、作者或原始查询语句），并通过 arXiv API 获取新论文。
+- **仪表盘** — 支持通过关键词、论文分类或状态进行筛选，浏览已收录的论文。
+- **论文详情** — 查看完整的元数据（标题、摘要、作者、分类、DOI、期刊引用），并附带 arXiv 和 PDF 的外部链接。
+- **论文状态** — 将论文标记为星标、已读或隐藏；支持评分（1–5 星）、添加备注和打标签。
+- **订阅管理** — 创建、编辑、删除、启用/禁用订阅，并支持手动触发同步。
+- **自动同步调度器** — 后台线程定期同步所有已启用的订阅。支持全局间隔配置及每个订阅的独立间隔设置。
+- **设置页面** — 开启或关闭自动同步、选择同步间隔预设、切换隐藏论文的显示状态。
 
-### Engineering
+### 工程架构
 
-- **Runtime Config** — Platform-aware data/log/db paths with dev-mode (`./runtime/`) and release-mode (`%APPDATA%`) strategies.
-- **Centralized Logging** — File-based logging (DEBUG level, `paper_research.log`) with console stderr output (WARNING+). Suppresses noisy third-party loggers.
-- **Startup Diagnostics** — Fatal errors during startup (DB init failure, path unwritable) are logged to file and shown as a visible error page in the UI.
-- **Resource Lifecycle** — Ordered shutdown: scheduler → HTTP client → DB connection. Idempotent close, timeout-safe scheduler stop.
-- **Test Suite** — 11 test modules (slices 01–10) covering domain models, repositories, arXiv integration, all services, UI components, scheduler, and query optimization. All tests use `:memory:` databases.
+- **运行时配置** — 支持平台感知的数据、日志及数据库路径：开发模式使用 `./runtime/`，发布模式使用 `%APPDATA%`。
+- **集中式日志** — 基于文件的日志记录（DEBUG 级别，保存在 `paper_research.log`），同时向控制台 stderr 输出 WARNING 及以上级别信息。抑制无关第三方日志。
+- **启动诊断** — 启动阶段出现的致命错误（如数据库初始化失败、路径不可写）会记录至日志文件，并在 UI 中显示为可见的错误页面。
+- **资源生命周期管理** — 有序顺序关闭：先停止调度器，再关闭 HTTP 客户端，最后断开数据库连接。支持幂等关闭操作和超时安全的调度器停止。
+- **测试套件** — 包含 11 个测试模块（切片 01 至 10），覆盖领域模型、数据仓库、arXiv 集成、所有服务层、UI 组件、调度器及查询优化。所有测试均使用 `:memory:` 数据库运行。
 
-### Packaging
+### 打包工具
 
-- `scripts/pack.ps1` — PyInstaller-based packaging for standalone Windows `.exe`.
-- `scripts/smoke.ps1` — Automated smoke check (imports, config, DB init, unit tests).
+- `scripts/pack.ps1` — 基于 PyInstaller 的 Windows 独立 `.exe` 打包脚本。
+- `scripts/smoke.ps1` — 自动冒烟测试（检查导入、配置、数据库初始化与单元测试）。
 
-## How to Verify
+## 如何验证
 
-### On a developer machine
+### 在开发者机器上
 
 ```powershell
-# 1. Run the full test suite
+# 1. 运行完整测试套件
 python -m pytest tests/ -v
 
-# 2. Run the smoke check
+# 2. 运行冒烟测试
 pwsh scripts/smoke.ps1
 
-# 3. Launch the app in dev mode
+# 3. 以开发模式启动应用
 $env:PAPER_RESEARCH_DEV_MODE = "1"
 python -m app.main
 ```
 
-### On a fresh machine (release candidate)
+### 在全新机器上（候选发布版本）
 
 ```powershell
-# 1. Launch the executable
+# 1. 启动可执行文件
 .\PaperResearch.exe
 
-# 2. Verify:
-#    - App window opens with title "Paper Research"
-#    - Navigation bar shows Dashboard / Subscriptions / Settings
-#    - Create a subscription → manual sync → papers appear on dashboard
-#    - Open a paper → star/rate/note/tag work
-#    - Settings page saves and controls auto-sync
-#    - Closing the window → clean exit (check logs)
-#    - Reopen → last page restored, data intact
+# 2. 验证以下功能：
+#    - 应用窗口打开，标题显示为 "Paper Research"
+#    - 导航栏显示：仪表盘 / 订阅 / 设置
+#    - 创建订阅 → 手动同步 → 论文出现在仪表盘上
+#    - 打开一篇论文 → 正常使用星标、评分、备注、标签功能
+#    - 设置页面可保存并控制自动同步开关
+#    - 关闭窗口 → 干净退出（检查日志）
+#    - 重新打开 → 恢复上次页面，数据完好
 ```
 
-## Data & Files
+## 数据与文件
 
-| What | Where (dev) | Where (release) |
-|------|-------------|-----------------|
-| Database | `./runtime/db/paper_research.db` | `%APPDATA%\paper-research\db\paper_research.db` |
-| Logs | `./runtime/logs/paper_research.log` | `%APPDATA%\paper-research\logs\paper_research.log` |
-| Config | `PAPER_RESEARCH_*` env vars | same |
+| 数据项 | 开发环境路径 | 发布环境路径 |
+|--------|-------------|-------------|
+| 数据库 | `./runtime/db/paper_research.db` | `%APPDATA%\paper-research\db\paper_research.db` |
+| 日志 | `./runtime/logs/paper_research.log` | `%APPDATA%\paper-research\logs\paper_research.log` |
+| 配置 | `PAPER_RESEARCH_*` 环境变量 | 同上 |
 
-## Known Limitations
+## 已知限制
 
-- **Flet 0.85.x** pinned — requires this specific version range. Future Flet upgrades may need API migration.
-- **Single instance** — no multi-instance guard; two processes using the same DB file may conflict.
-- **No PDF download** — the "Open PDF" button opens the arXiv PDF URL in the default browser.
-- **Windows primary** — tested primarily on Windows; macOS/Linux should work but may have minor platform-specific issues.
-- **No LLM / AI features** — these are planned for post-MVP iterations.
+- **Flet 0.85.x 版本固定** — 需要该特定版本范围。未来升级 Flet 时可能需要进行 API 迁移。
+- **单实例运行** — 未实现多实例保护机制；两个进程同时使用同一数据库文件可能导致冲突。
+- **不支持 PDF 下载** — “打开 PDF”按钮通过默认浏览器打开 arXiv PDF 链接。
+- **以 Windows 为主** — 主要针对 Windows 系统测试；macOS/Linux 应能运行，但可能存在轻微的平台适配问题。
+- **不包含 LLM / AI 功能** — 这些功能计划在 MVP 之后的迭代中实现。
 
-## Breaking Changes from Development
+## 与开发版的破坏性变更
 
-None — this is the initial release.
+无 — 本版本为初始发布版。
 
-## Dependencies
+## 依赖项
 
 ```
 flet>=0.85,<0.86
@@ -92,11 +92,11 @@ python-dateutil>=2.8.2,<3
 python-dotenv>=1.0,<2
 ```
 
-## Next Steps (Post-MVP)
+## 后续规划（MVP 之后）
 
-- Python 3.12+ support and Flet version upgrade
-- LLM-powered paper summarization
-- PDF full-text parsing
-- Cloud sync (multi-device)
-- CI/CD pipeline
-- macOS / Linux packaging
+- 支持 Python 3.12+ 及 Flet 版本升级
+- 基于 LLM 的论文摘要生成
+- PDF 全文解析
+- 云端同步（多设备）
+- CI/CD 流水线
+- macOS / Linux 打包支持

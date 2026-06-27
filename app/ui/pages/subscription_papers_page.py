@@ -40,26 +40,9 @@ def build_subscription_papers_view(
         return ft.View(
             route=f"/subscriptions/{subscription_id}/papers",
             controls=[
-                ft.Container(
-                    expand=True,
-                    alignment=ft.Alignment(0, 0),
-                    content=ft.Column(
-                        controls=[
-                            ft.Icon(
-                                ft.Icons.SEARCH_OFF,
-                                size=48,
-                                color=ft.Colors.GREY_400,
-                            ),
-                            ft.Text(
-                                "Subscription not found.",
-                                size=14,
-                                color=ft.Colors.GREY_500,
-                            ),
-                        ],
-                        alignment=ft.MainAxisAlignment.CENTER,
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        tight=True,
-                    ),
+                _build_centered_empty_state(
+                    icon=ft.Icons.SEARCH_OFF,
+                    title="Subscription not found.",
                 ),
             ],
             appbar=ft.AppBar(
@@ -96,34 +79,13 @@ def build_subscription_papers_view(
             return
 
         if not papers:
-            content_area.content = ft.Container(
-                expand=True,
-                alignment=ft.Alignment(0, 0),
-                content=ft.Column(
-                    controls=[
-                        ft.Icon(
-                            ft.Icons.ARTICLE_OUTLINED,
-                            size=48,
-                            color=ft.Colors.GREY_400,
-                        ),
-                        ft.Text(
-                            "No attributed papers for this subscription yet.",
-                            size=14,
-                            color=ft.Colors.GREY_500,
-                            text_align=ft.TextAlign.CENTER,
-                        ),
-                        ft.Text(
-                            "Papers from before the upgrade lack source records "
-                            "and won't appear here.\n"
-                            "Re-sync this subscription to build provenance.",
-                            size=12,
-                            color=ft.Colors.GREY_400,
-                            text_align=ft.TextAlign.CENTER,
-                        ),
-                    ],
-                    alignment=ft.MainAxisAlignment.CENTER,
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    tight=True,
+            content_area.content = _build_centered_empty_state(
+                icon=ft.Icons.ARTICLE_OUTLINED,
+                title="No attributed papers for this subscription yet.",
+                subtitle=(
+                    "Papers from before the upgrade lack source records "
+                    "and won't appear here.\n"
+                    "Re-sync this subscription to build provenance."
                 ),
             )
         else:
@@ -287,5 +249,47 @@ def build_subscription_papers_view(
                 tooltip="Back to Subscriptions",
                 on_click=lambda e: page.go("/subscriptions"),
             ),
+        ),
+    )
+
+
+def _build_centered_empty_state(
+    *,
+    icon: str,
+    title: str,
+    subtitle: str | None = None,
+) -> ft.Container:
+    """构建订阅页统一的居中空态。"""
+    controls: list[ft.Control] = [
+        ft.Icon(
+            icon,
+            size=48,
+            color=ft.Colors.GREY_400,
+        ),
+        ft.Text(
+            title,
+            size=14,
+            color=ft.Colors.GREY_500,
+            text_align=ft.TextAlign.CENTER,
+        ),
+    ]
+    if subtitle:
+        controls.append(
+            ft.Text(
+                subtitle,
+                size=12,
+                color=ft.Colors.GREY_400,
+                text_align=ft.TextAlign.CENTER,
+            )
+        )
+
+    return ft.Container(
+        expand=True,
+        alignment=ft.Alignment(0, 0),
+        content=ft.Column(
+            controls=controls,
+            alignment=ft.MainAxisAlignment.CENTER,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            tight=True,
         ),
     )

@@ -314,23 +314,32 @@ def build_subscriptions_view(ctx: AppContext, page: ft.Page) -> ft.View:
 # ---------------------------------------------------------------------------
 
 
-def _build_empty_view() -> ft.Column:
+def _build_empty_view() -> ft.Container:
     """无订阅时的占位视图。"""
-    return ft.Column(
-        controls=[
-            ft.Icon(ft.Icons.SUBSCRIPTIONS_OUTLINED, size=48, color=ft.Colors.GREY_400),
-            ft.Text(
-                "No subscriptions yet.\nClick + to create one.",
-                size=14,
-                color=ft.Colors.GREY_500,
-                text_align=ft.TextAlign.CENTER,
-            ),
-        ],
-        alignment=ft.MainAxisAlignment.CENTER,
-        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+    return ft.Container(
         expand=True,
+        alignment=ft.Alignment(0, 0),
+        content=ft.Column(
+            controls=[
+                ft.Icon(ft.Icons.SUBSCRIPTIONS_OUTLINED, size=48, color=ft.Colors.GREY_400),
+                ft.Text(
+                    "No subscriptions yet.",
+                    size=14,
+                    color=ft.Colors.GREY_500,
+                    text_align=ft.TextAlign.CENTER,
+                ),
+                ft.Text(
+                    "Click + to create one.",
+                    size=12,
+                    color=ft.Colors.GREY_400,
+                    text_align=ft.TextAlign.CENTER,
+                ),
+            ],
+            alignment=ft.MainAxisAlignment.CENTER,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            tight=True,
+        ),
     )
-
 
 def _build_error_view(message: str) -> ft.Column:
     """加载失败时的错误占位视图。"""

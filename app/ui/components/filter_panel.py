@@ -43,7 +43,6 @@ def build_filter_panel(
         包含筛选控件与 Apply 按钮的 :class:`ft.Container`
     """
 
-    # -- 控件引用（通过 ref 在回调中读取值） --
     keyword_field = ft.TextField(
         label="Keyword",
         value=current_filters.keyword or "",
@@ -81,8 +80,6 @@ def build_filter_panel(
         tristate=True,
     )
 
-    # -- 回调逻辑 --
-
     def _on_apply(e: ft.ControlEvent) -> None:
         """收集控件值，构建 PaperListFilters 并回调。"""
         kw = keyword_field.value.strip() if keyword_field.value else None
@@ -92,7 +89,6 @@ def build_filter_panel(
             else None
         )
 
-        # Flet Checkbox tristate: None → 不过滤
         def _checkbox_value(chk: ft.Checkbox) -> bool | None:
             return chk.value if chk.value is not None else None
 
@@ -129,28 +125,42 @@ def build_filter_panel(
         style=ft.ButtonStyle(padding=16),
     )
 
+    status_container = ft.Container(
+        content=ft.Row(
+            controls=[starred_check, read_check, hidden_check],
+            spacing=20,
+            wrap=True,
+        ),
+        padding=ft.padding.Padding(left=8, top=4, right=8, bottom=4),
+    )
+
+    action_row = ft.Row(
+        controls=[apply_btn, clear_btn],
+        spacing=8,
+        alignment=ft.MainAxisAlignment.END,
+        tight=True,
+    )
+
     return ft.Container(
         content=ft.Column(
             controls=[
                 ft.Row(
-                    controls=[
-                        keyword_field,
-                        category_dropdown,
-                        ft.VerticalDivider(width=1),
-                        starred_check,
-                        read_check,
-                        hidden_check,
-                        ft.VerticalDivider(width=1),
-                        apply_btn,
-                        clear_btn,
-                    ],
-                    spacing=8,
+                    controls=[keyword_field, category_dropdown],
+                    spacing=12,
                     wrap=True,
                 ),
+                ft.Container(
+                    content=ft.Row(
+                        controls=[status_container, action_row],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    padding=ft.padding.Padding(left=4, top=0, right=4, bottom=0),
+                ),
             ],
-            spacing=4,
+            spacing=8,
         ),
-        padding=ft.padding.Padding(left=16, top=8, right=16, bottom=8),
+        padding=ft.padding.Padding(left=16, top=12, right=16, bottom=12),
         bgcolor=ft.Colors.GREY_100,
         border_radius=ft.border_radius.BorderRadius(
             top_left=8, top_right=8, bottom_left=0, bottom_right=0
