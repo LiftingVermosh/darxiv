@@ -28,6 +28,7 @@ dist/
 *.egg-info/
 .eggs/
 pip-wheel-metadata/
+PaperResearch.spec
 
 # Runtime artifacts
 *.log
