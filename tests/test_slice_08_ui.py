@@ -71,11 +71,19 @@ from app.ui.pages.subscriptions_page import build_subscriptions_view
 # ============================================================================
 
 
-class _MockPage:
-    """Flet Page 的轻量级存根，覆盖 UI 层常用的 page API。
+class _MockSnackBarHolder:
+    """模拟 ``page.snack_bar`` 容器。"""
 
-    所有写操作（update / go / open / close / launch_url）
-    均记录到内部列表，供测试断言。
+    def __init__(self) -> None:
+        self._snack: ft.SnackBar | None = None
+        self.open: bool = False
+
+
+class _MockPage:
+    """Flet Page 轻量级存根，贴合真实运行时 API 面。
+
+    覆盖：update / go / show_dialog / pop_dialog / launch_url / snack_bar。
+    不提供真实 Flet Page 上没有的 open/close 方法，避免测试掩盖 API 误用。
     """
 
     def __init__(self) -> None:
@@ -85,6 +93,7 @@ class _MockPage:
         self._snackbars: list[ft.SnackBar] = []
         self._dialogs: list[ft.AlertDialog] = []
         self._launched_urls: list[str] = []
+        self._snack_bar = _MockSnackBarHolder()
 
         # AppShell 写入的属性
         self.title = ""
@@ -104,19 +113,25 @@ class _MockPage:
         self.calls.append(f"go:{route}")
         self._route = route
 
-    def open(self, control: ft.Control) -> None:
-        self.calls.append("open")
-        if isinstance(control, ft.SnackBar):
-            self._snackbars.append(control)
-        elif isinstance(control, ft.AlertDialog):
-            self._dialogs.append(control)
+    def show_dialog(self, dialog: ft.AlertDialog) -> None:
+        self.calls.append("show_dialog")
+        self._dialogs.append(dialog)
 
-    def close(self, control: ft.Control | None = None) -> None:
-        self.calls.append("close")
+    def pop_dialog(self) -> None:
+        self.calls.append("pop_dialog")
 
     def launch_url(self, url: str) -> None:
         self.calls.append(f"launch_url:{url}")
         self._launched_urls.append(url)
+
+    @property
+    def snack_bar(self) -> _MockSnackBarHolder:
+        return self._snack_bar
+
+    @snack_bar.setter
+    def snack_bar(self, value: ft.SnackBar) -> None:
+        self._snack_bar._snack = value
+        self._snack_bar.open = False
 
     @property
     def route(self) -> str:
@@ -237,8 +252,13 @@ def _mock_ctx(conn: sqlite3.Connection) -> AppContext:
     mock_scheduler = MagicMock(spec=SyncScheduler)
     mock_scheduler.is_running = False
     mock_scheduler.last_tick_event = None
+    from app.application.services.paper_library_service import (
+        PaperLibraryService,
+    )
+    mock_library_svc = MagicMock(spec=PaperLibraryService)
     return AppContext(
         connection=conn,
+        paper_library_service=mock_library_svc,
         paper_query_service=mock_query_svc,
         settings_service=mock_settings_svc,
         status_service=mock_status_svc,

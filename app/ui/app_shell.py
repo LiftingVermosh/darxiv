@@ -15,6 +15,9 @@ from app.main import AppContext, create_app_context
 from app.ui.pages.dashboard_page import build_dashboard_view
 from app.ui.pages.paper_detail_page import build_paper_detail_view
 from app.ui.pages.settings_page import build_settings_view
+from app.ui.pages.subscription_papers_page import (
+    build_subscription_papers_view,
+)
 from app.ui.pages.subscriptions_page import build_subscriptions_view
 
 logger = logging.getLogger(__name__)
@@ -35,6 +38,7 @@ class AppShell:
         self._config = config  # 延迟解析：仅在 __call__ 中 Flet 真正启动时才创建
         self.page: ft.Page | None = None
         self.ctx: AppContext | None = None
+        self._nav_bar: ft.NavigationBar | None = None
 
     def __call__(self, page: ft.Page) -> None:
         """Flet 入口回调。
@@ -74,7 +78,7 @@ class AppShell:
         page.on_route_change = self._on_route_change
 
         # -- 底部导航栏 --
-        page.navigation_bar = ft.NavigationBar(
+        self._nav_bar = ft.NavigationBar(
             destinations=[
                 ft.NavigationBarDestination(
                     icon=ft.Icons.DASHBOARD,
@@ -91,6 +95,7 @@ class AppShell:
             ],
             on_change=self._on_nav_change,
         )
+        page.navigation_bar = self._nav_bar
 
         # -- 窗口关闭时释放资源 --
         page.window.on_close = self._on_window_close
@@ -209,16 +214,29 @@ class AppShell:
         # 解析路由并构建对应视图
         if route == "/dashboard" or route == "/":
             view = build_dashboard_view(self.ctx, self.page)
-            self.page.navigation_bar.selected_index = 0
+            if self._nav_bar is not None:
+                self._nav_bar.selected_index = 0
+                view.navigation_bar = self._nav_bar
             self._save_last_page(route)
         elif route == "/subscriptions":
             view = build_subscriptions_view(self.ctx, self.page)
-            self.page.navigation_bar.selected_index = 1
+            if self._nav_bar is not None:
+                self._nav_bar.selected_index = 1
+                view.navigation_bar = self._nav_bar
             self._save_last_page(route)
         elif route == "/settings":
             view = build_settings_view(self.ctx, self.page)
-            self.page.navigation_bar.selected_index = 2
+            if self._nav_bar is not None:
+                self._nav_bar.selected_index = 2
+                view.navigation_bar = self._nav_bar
             self._save_last_page(route)
+        elif route.startswith("/subscriptions/") and route.endswith("/papers"):
+            # /subscriptions/{id}/papers
+            sub_id = route.split("/subscriptions/", 1)[1].rsplit("/papers", 1)[0]
+            view = build_subscription_papers_view(
+                self.ctx, self.page, sub_id
+            )
+            # 订阅论文列表是瞬时页面，恢复时回到订阅列表
         elif route.startswith("/paper/"):
             arxiv_id = route.split("/paper/", 1)[1]
             view = build_paper_detail_view(self.ctx, self.page, arxiv_id)

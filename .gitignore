@@ -57,3 +57,5 @@ Desktop.ini
 
 # Docus
 docs/plans/*.md
+docs/hw/*
+docs/hw/*.*

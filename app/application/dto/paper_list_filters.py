@@ -23,6 +23,7 @@ class PaperListFilters(BaseModel):
         is_read: 按阅读状态过滤
         is_hidden: 按隐藏状态过滤（默认不过滤，由调用方显式指定）
         author: 按作者名称做大小写不敏感子串匹配（自动 trim）
+        subscription_id: 按订阅 ID 过滤（仅返回属于该订阅的论文）
         published_from: 发布日期下界（含）； naive datetime 统一按 UTC 处理
         published_to: 发布日期上界（含）； naive datetime 统一按 UTC 处理
         updated_from: 更新日期下界（含）； naive datetime 统一按 UTC 处理
@@ -37,6 +38,7 @@ class PaperListFilters(BaseModel):
     is_read: bool | None = None
     is_hidden: bool | None = None
     author: str | None = None
+    subscription_id: str | None = None
     published_from: datetime | None = None
     published_to: datetime | None = None
     updated_from: datetime | None = None

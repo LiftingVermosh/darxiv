@@ -8,6 +8,9 @@ from app.infrastructure.db.repositories.paper_repository import PaperRepository
 from app.infrastructure.db.repositories.paper_status_repository import (
     PaperStatusRepository,
 )
+from app.infrastructure.db.repositories.subscription_paper_repository import (
+    SubscriptionPaperRepository,
+)
 from app.infrastructure.db.repositories.subscription_repository import (
     SubscriptionRepository,
 )
@@ -20,6 +23,7 @@ __all__ = [
     "PaperQueryRepository",
     "PaperRepository",
     "PaperStatusRepository",
+    "SubscriptionPaperRepository",
     "SubscriptionRepository",
     "SyncRunRepository",
 ]

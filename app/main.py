@@ -17,6 +17,7 @@ from types import TracebackType
 from typing import Self
 
 from app.application.services import (
+    PaperLibraryService,
     PaperQueryService,
     SettingsService,
     StatusService,
@@ -42,6 +43,7 @@ class AppContext:
 
     Attributes:
         connection: 已初始化的 SQLite 连接（启用外键 + Row 工厂）
+        paper_library_service: 论文库管理服务（删除/解绑）
         paper_query_service: 论文查询聚合服务
         settings_service: 运行期设置读写服务
         status_service: 论文用户状态管理服务
@@ -53,6 +55,7 @@ class AppContext:
     def __init__(
         self,
         connection: sqlite3.Connection,
+        paper_library_service: PaperLibraryService,
         paper_query_service: PaperQueryService,
         settings_service: SettingsService,
         status_service: StatusService,
@@ -61,6 +64,7 @@ class AppContext:
         scheduler: SyncScheduler,
     ) -> None:
         self.connection = connection
+        self.paper_library_service = paper_library_service
         self.paper_query_service = paper_query_service
         self.settings_service = settings_service
         self.status_service = status_service
@@ -156,6 +160,7 @@ def create_app_context(
         raise RuntimeError(f"Database initialization failed: {exc}") from exc
 
     try:
+        paper_library_service = PaperLibraryService(connection)
         paper_query_service = PaperQueryService(connection)
         settings_service = SettingsService(connection)
         status_service = StatusService(connection)
@@ -171,6 +176,7 @@ def create_app_context(
 
     return AppContext(
         connection=connection,
+        paper_library_service=paper_library_service,
         paper_query_service=paper_query_service,
         settings_service=settings_service,
         status_service=status_service,

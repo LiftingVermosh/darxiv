@@ -137,7 +137,15 @@ class PaperQueryRepository:
             匹配行数
         """
         where_clause, params = self._build_where(filters)
-        sql = _BASE_COUNT_SELECT
+        if filters.subscription_id is not None:
+            sql = (
+                "SELECT COUNT(*) "
+                "FROM subscription_papers sp "
+                "JOIN papers p ON sp.arxiv_id = p.arxiv_id "
+                "LEFT JOIN paper_statuses ps ON p.arxiv_id = ps.arxiv_id"
+            )
+        else:
+            sql = _BASE_COUNT_SELECT
         if where_clause:
             sql += " WHERE " + where_clause
         row = self._conn.execute(sql, params).fetchone()
@@ -167,7 +175,40 @@ class PaperQueryRepository:
         """构建完整的 SELECT + WHERE + ORDER BY + LIMIT/OFFSET 语句与参数列表。"""
         where_clause, params = self._build_where(filters)
 
-        sql = _BASE_SELECT
+        # 当按 subscription_id 过滤时，需要 JOIN subscription_papers
+        if filters.subscription_id is not None:
+            sql = (
+                "SELECT "
+                "    p.arxiv_id,"
+                "    p.latest_version,"
+                "    p.title,"
+                "    p.abstract,"
+                "    p.authors_json,"
+                "    p.primary_category,"
+                "    p.categories_json,"
+                "    p.published_at,"
+                "    p.updated_at,"
+                "    p.pdf_url,"
+                "    p.abs_url,"
+                "    p.comment,"
+                "    p.journal_ref,"
+                "    p.doi,"
+                "    p.created_at,"
+                "    p.synced_at,"
+                "    COALESCE(ps.is_starred, 0)  AS is_starred,"
+                "    COALESCE(ps.is_read, 0)     AS is_read,"
+                "    COALESCE(ps.is_hidden, 0)   AS is_hidden,"
+                "    ps.rating,"
+                "    ps.note,"
+                "    ps.tags_json,"
+                "    ps.updated_at               AS status_updated_at"
+                " FROM subscription_papers sp"
+                " JOIN papers p ON sp.arxiv_id = p.arxiv_id"
+                " LEFT JOIN paper_statuses ps ON p.arxiv_id = ps.arxiv_id"
+            )
+        else:
+            sql = _BASE_SELECT
+
         if where_clause:
             sql += " WHERE " + where_clause
 
@@ -203,6 +244,11 @@ class PaperQueryRepository:
         """
         clauses: list[str] = []
         params: list[Any] = []
+
+        # -- 订阅过滤（精确匹配 subscription_papers.subscription_id） --
+        if filters.subscription_id is not None:
+            clauses.append("sp.subscription_id = ?")
+            params.append(filters.subscription_id)
 
         # -- 分类（精确匹配） --
         if filters.category is not None:

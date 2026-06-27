@@ -11,7 +11,11 @@ from app.application.services.exceptions import (
 )
 from app.application.services.sync_service import SyncService
 from app.domain.models import Subscription
-from app.infrastructure.db.repositories import SubscriptionRepository
+from app.infrastructure.db.repositories import (
+    PaperRepository,
+    SubscriptionPaperRepository,
+    SubscriptionRepository,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -37,6 +41,8 @@ class SubscriptionService:
     ) -> None:
         self._conn = connection
         self._sub_repo = SubscriptionRepository(connection)
+        self._sub_paper_repo = SubscriptionPaperRepository(connection)
+        self._paper_repo = PaperRepository(connection)
         self._sync_service = sync_service or SyncService(connection)
 
     # ------------------------------------------------------------------
@@ -164,28 +170,67 @@ class SubscriptionService:
         return toggled
 
     def delete_subscription(self, subscription_id: str) -> None:
-        """删除指定订阅。
+        """删除指定订阅并清理孤儿论文。
 
-        由于 ``sync_runs`` 表对 ``subscriptions`` 存在外键约束
-        （``ON DELETE RESTRICT``），需先清理关联的同步运行记录。
+        执行顺序：
+        1. 校验订阅存在
+        2. 查询该订阅关联的 ``arxiv_id`` 集合
+        3. 删除该订阅的 ``sync_runs``
+        4. 删除该订阅的 ``subscription_papers``
+        5. 删除订阅本身
+        6. 对受影响的 ``arxiv_id`` 执行孤儿检查
+        7. 删除已无任何订阅归属的论文及其级联数据
 
-        MVP 阶段仅删除订阅本身及其同步记录，不级联删除历史论文。
+        由于 ``paper_versions`` 和 ``paper_statuses`` 已对 ``papers``
+        配置 ``ON DELETE CASCADE``，物理删除论文后相关状态和版本会自动清掉。
 
         Args:
             subscription_id: 要删除的订阅 ID
 
         Raises:
-            SubscriptionNotFoundError: 指定 ID 不存在（幂等行为：
-                调用方可选择捕获该异常以实现幂等删除）
+            SubscriptionNotFoundError: 指定 ID 不存在
         """
         self._require_subscription(subscription_id)
 
-        # 清理同步运行记录（FK RESTRICT 约束要求）
+        # 2. 查询关联的 arxiv_id 集合
+        affected_arxiv_ids = (
+            self._sub_paper_repo.get_arxiv_ids_for_subscription(
+                subscription_id
+            )
+        )
+
+        # 3. 清理同步运行记录
         self._conn.execute(
             "DELETE FROM sync_runs WHERE subscription_id = ?",
             (subscription_id,),
         )
+
+        # 4. 删除 subscription_papers 关联
+        self._sub_paper_repo.delete_for_subscription(subscription_id)
+
+        # 5. 删除订阅本身
         self._sub_repo.delete(subscription_id)
+
+        # 6-7. 孤儿检查 & 物理删除孤儿论文
+        # 注意：provenance_state = 'legacy_unattributed' 的论文是升级前的
+        # 历史数据，其真实归属已不可追溯，因此不参与孤儿删除。
+        if affected_arxiv_ids:
+            orphans = self._sub_paper_repo.find_orphan_arxiv_ids(
+                affected_arxiv_ids
+            )
+            for arxiv_id in orphans:
+                row = self._conn.execute(
+                    "SELECT provenance_state FROM papers WHERE arxiv_id = ?",
+                    (arxiv_id,),
+                ).fetchone()
+                if row and row["provenance_state"] == "legacy_unattributed":
+                    continue  # 历史论文，保留
+                # paper_versions / paper_statuses 通过 ON DELETE CASCADE 自动清理
+                self._conn.execute(
+                    "DELETE FROM papers WHERE arxiv_id = ?",
+                    (arxiv_id,),
+                )
+
         self._conn.commit()
 
     # ------------------------------------------------------------------

@@ -300,6 +300,35 @@ def build_paper_detail_view(ctx: AppContext, page: ft.Page, arxiv_id: str) -> ft
             spacing=6,
         )
 
+    def _on_delete_paper(e: ft.ControlEvent) -> None:
+        def _confirm_delete(ce: ft.ControlEvent) -> None:
+            page.pop_dialog()
+            try:
+                msg = ctx.paper_library_service.delete_paper(arxiv_id)
+                show_notification(page, msg)
+                page.go("/dashboard")
+            except Exception as exc:
+                show_notification(page, f"Error: {exc}", is_error=True)
+
+        confirm_dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Delete Paper"),
+            content=ft.Text(
+                "Are you sure you want to permanently delete this paper?\n\n"
+                "This will remove all local data including status, "
+                "notes, tags, and version history."
+            ),
+            actions=[
+                ft.TextButton("Cancel", on_click=lambda e: page.pop_dialog()),
+                ft.FilledButton(
+                    "Delete",
+                    on_click=_confirm_delete,
+                    style=ft.ButtonStyle(color=ft.Colors.RED_700),
+                ),
+            ],
+        )
+        page.show_dialog(confirm_dialog)
+
     # -- 初始加载 --
     _load_detail()
 
@@ -313,6 +342,14 @@ def build_paper_detail_view(ctx: AppContext, page: ft.Page, arxiv_id: str) -> ft
                 tooltip="Back to Dashboard",
                 on_click=lambda e: page.go("/dashboard"),
             ),
+            actions=[
+                ft.IconButton(
+                    icon=ft.Icons.DELETE,
+                    tooltip="Delete paper",
+                    icon_color=ft.Colors.RED_400,
+                    on_click=_on_delete_paper,
+                ),
+            ],
         ),
         scroll=ft.ScrollMode.AUTO,
     )

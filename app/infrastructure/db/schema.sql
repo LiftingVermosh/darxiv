@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS papers (
     journal_ref       TEXT,
     doi               TEXT,
     created_at        TEXT NOT NULL,
-    synced_at         TEXT NOT NULL
+    synced_at         TEXT NOT NULL,
+    provenance_state  TEXT NOT NULL DEFAULT 'attributed'
 );
 
 CREATE INDEX IF NOT EXISTS idx_papers_primary_category ON papers (primary_category);
@@ -84,6 +85,23 @@ CREATE TABLE IF NOT EXISTS sync_runs (
     updated_count     INTEGER NOT NULL DEFAULT 0,
     error_message     TEXT
 );
+
+CREATE TABLE IF NOT EXISTS subscription_papers (
+    subscription_id   TEXT NOT NULL
+                      REFERENCES subscriptions(id) ON DELETE CASCADE,
+    arxiv_id          TEXT NOT NULL
+                      REFERENCES papers(arxiv_id) ON DELETE CASCADE,
+    first_seen_at     TEXT NOT NULL,
+    last_seen_at      TEXT NOT NULL,
+    last_sync_run_id  TEXT,
+    PRIMARY KEY (subscription_id, arxiv_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_subscription_papers_arxiv_id
+    ON subscription_papers (arxiv_id);
+
+CREATE INDEX IF NOT EXISTS idx_subscription_papers_subscription_id
+    ON subscription_papers (subscription_id);
 
 CREATE TABLE IF NOT EXISTS app_settings (
     key         TEXT PRIMARY KEY,

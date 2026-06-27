@@ -52,6 +52,8 @@ def initialize_database(
     # conflicts before applying.
     # ------------------------------------------------------------------
     _migrate_unique_subscription_name(connection)
+    _migrate_subscription_papers(connection)
+    _migrate_provenance_state(connection)
 
     connection.commit()
 
@@ -98,4 +100,63 @@ def _migrate_unique_subscription_name(connection: sqlite3.Connection) -> None:
     connection.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_subscriptions_name "
         "ON subscriptions(name)"
+    )
+
+
+def _migrate_subscription_papers(connection: sqlite3.Connection) -> None:
+    """Ensure the ``subscription_papers`` table exists.
+
+    - New databases: ``schema.sql`` already declares the table inline. Nothing to do.
+    - Old databases: create the table if it does not already exist.
+    """
+    connection.execute(
+        "CREATE TABLE IF NOT EXISTS subscription_papers ("
+        "  subscription_id   TEXT NOT NULL"
+        "                    REFERENCES subscriptions(id) ON DELETE CASCADE,"
+        "  arxiv_id          TEXT NOT NULL"
+        "                    REFERENCES papers(arxiv_id) ON DELETE CASCADE,"
+        "  first_seen_at     TEXT NOT NULL,"
+        "  last_seen_at      TEXT NOT NULL,"
+        "  last_sync_run_id  TEXT,"
+        "  PRIMARY KEY (subscription_id, arxiv_id)"
+        ")"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_subscription_papers_arxiv_id "
+        "ON subscription_papers (arxiv_id)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_subscription_papers_subscription_id "
+        "ON subscription_papers (subscription_id)"
+    )
+
+
+def _migrate_provenance_state(connection: sqlite3.Connection) -> None:
+    """Add ``provenance_state`` column and mark pre-existing papers as legacy.
+
+    - New databases: ``schema.sql`` already declares the column with
+      DEFAULT 'attributed'. Nothing to do.
+    - Old databases: add the column if missing, then set all papers that
+      already exist to ``'legacy_unattributed'`` so they are never incorrectly
+      treated as orphans during subscription deletion.
+
+    Papers brought in by new syncs will have their provenance corrected to
+    ``'attributed'`` when a real ``subscription_papers`` link is written.
+    """
+    # Check if column already exists
+    col = connection.execute(
+        "PRAGMA table_info('papers')"
+    ).fetchall()
+    col_names = {r["name"] for r in col}
+    if "provenance_state" in col_names:
+        return
+
+    connection.execute(
+        "ALTER TABLE papers ADD COLUMN provenance_state "
+        "TEXT NOT NULL DEFAULT 'attributed'"
+    )
+
+    # Mark all papers that pre-date this migration as legacy
+    connection.execute(
+        "UPDATE papers SET provenance_state = 'legacy_unattributed'"
     )

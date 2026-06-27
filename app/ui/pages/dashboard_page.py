@@ -181,6 +181,20 @@ def build_dashboard_view(ctx: AppContext, page: ft.Page) -> ft.View:
         def _on_card_click(e: ft.ControlEvent) -> None:
             page.go(f"/paper/{paper.arxiv_id}")
 
+        def _on_delete_paper(e: ft.ControlEvent) -> None:
+            e.control.disabled = True
+            page.update()
+            try:
+                msg = ctx.paper_library_service.delete_paper(
+                    paper.arxiv_id,
+                )
+                show_notification(page, msg)
+                _load_papers()
+            except Exception as exc:
+                show_notification(page, f"Error: {exc}", is_error=True)
+                e.control.disabled = False
+                page.update()
+
         cat_chips = [
             ft.Container(
                 content=ft.Text(cat, size=10, color=ft.Colors.BLUE_700),
@@ -230,11 +244,23 @@ def build_dashboard_view(ctx: AppContext, page: ft.Page) -> ft.View:
                                     spacing=4,
                                     expand=True,
                                 ),
-                                build_status_bar(
-                                    is_starred=paper.is_starred,
-                                    is_read=paper.is_read,
-                                    is_hidden=paper.is_hidden,
-                                    on_toggle=_on_status_toggle,
+                                ft.Row(
+                                    controls=[
+                                        build_status_bar(
+                                            is_starred=paper.is_starred,
+                                            is_read=paper.is_read,
+                                            is_hidden=paper.is_hidden,
+                                            on_toggle=_on_status_toggle,
+                                        ),
+                                        ft.IconButton(
+                                            icon=ft.Icons.DELETE_OUTLINE,
+                                            icon_size=18,
+                                            icon_color=ft.Colors.RED_300,
+                                            tooltip="Delete paper",
+                                            on_click=_on_delete_paper,
+                                        ),
+                                    ],
+                                    spacing=4,
                                 ),
                             ],
                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -270,6 +296,13 @@ def build_dashboard_view(ctx: AppContext, page: ft.Page) -> ft.View:
         ],
         appbar=ft.AppBar(
             title=ft.Text("Dashboard"),
+            actions=[
+                ft.IconButton(
+                    icon=ft.Icons.REFRESH,
+                    tooltip="Refresh list",
+                    on_click=lambda e: _load_papers(),
+                ),
+            ],
         ),
     )
 

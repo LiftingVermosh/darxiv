@@ -113,14 +113,20 @@ def build_subscriptions_view(ctx: AppContext, page: ft.Page) -> ft.View:
                     result = await loop.run_in_executor(
                         None, ctx.subscription_service.sync_subscription, sub.id
                     )
-                    show_notification(
-                        page,
-                        f"Sync '{sub.name}': "
-                        f"fetched {result.fetched_count}, "
-                        f"new {result.inserted_count}, "
-                        f"updated {result.updated_count}",
-                        is_error=result.error_message is not None,
-                    )
+                    if result.error_message:
+                        show_notification(
+                            page,
+                            f"Sync '{sub.name}' failed: {result.error_message}",
+                            is_error=True,
+                        )
+                    else:
+                        show_notification(
+                            page,
+                            f"Sync '{sub.name}': "
+                            f"fetched {result.fetched_count}, "
+                            f"new {result.inserted_count}, "
+                            f"updated {result.updated_count}",
+                        )
                 except Exception as exc:
                     show_notification(page, f"Sync failed: {exc}", is_error=True)
                 finally:
@@ -138,9 +144,12 @@ def build_subscriptions_view(ctx: AppContext, page: ft.Page) -> ft.View:
                 on_save=lambda input_: _handle_update(sub.id, input_),
             )
 
+        def _on_view_papers(e: ft.ControlEvent) -> None:
+            page.go(f"/subscriptions/{sub.id}/papers")
+
         def _on_delete(e: ft.ControlEvent) -> None:
             def _confirm_delete(ce: ft.ControlEvent) -> None:
-                page.close(confirm_dialog)
+                page.pop_dialog()
                 try:
                     ctx.subscription_service.delete_subscription(sub.id)
                     show_notification(page, f"Deleted '{sub.name}'.")
@@ -157,11 +166,12 @@ def build_subscriptions_view(ctx: AppContext, page: ft.Page) -> ft.View:
                 modal=True,
                 title=ft.Text("Delete Subscription"),
                 content=ft.Text(
-                    f"Are you sure you want to delete '{sub.name}'?\n"
-                    f"This will also remove associated sync run records."
+                    f"Are you sure you want to delete '{sub.name}'?\n\n"
+                    f"This will also remove associated sync run records "
+                    f"and any papers that no longer belong to any subscription."
                 ),
                 actions=[
-                    ft.TextButton("Cancel", on_click=lambda e: page.close(confirm_dialog)),
+                    ft.TextButton("Cancel", on_click=lambda e: page.pop_dialog()),
                     ft.FilledButton(
                         "Delete",
                         on_click=_confirm_delete,
@@ -169,7 +179,7 @@ def build_subscriptions_view(ctx: AppContext, page: ft.Page) -> ft.View:
                     ),
                 ],
             )
-            page.open(confirm_dialog)
+            page.show_dialog(confirm_dialog)
 
         # -- 卡片布局 --
 
@@ -201,6 +211,12 @@ def build_subscriptions_view(ctx: AppContext, page: ft.Page) -> ft.View:
                                         ),
                                         ft.Row(
                                             controls=[
+                                                ft.IconButton(
+                                                    icon=ft.Icons.LIST,
+                                                    tooltip="View Papers",
+                                                    icon_size=18,
+                                                    on_click=_on_view_papers,
+                                                ),
                                                 ft.IconButton(
                                                     ref=sync_btn_ref,
                                                     icon=ft.Icons.SYNC,

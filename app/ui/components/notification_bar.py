@@ -22,4 +22,6 @@ def show_notification(page: ft.Page, message: str, *, is_error: bool = False) ->
         bgcolor=ft.Colors.RED_700 if is_error else ft.Colors.GREEN_700,
         duration=3000,
     )
-    page.open(snack)
+    page.snack_bar = snack
+    page.snack_bar.open = True
+    page.update()

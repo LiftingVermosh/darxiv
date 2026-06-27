@@ -41,18 +41,26 @@ from app.ui.app_shell import AppShell
 from app.ui.pages.settings_page import build_settings_view
 
 # ============================================================================
-# Mock Fixtures (复用 Slice 08 的 _MockPage)
+# Mock Fixtures
 # ============================================================================
 
 
+class _MockSnackBarHolder:
+    """模拟 ``page.snack_bar`` 容器。"""
+
+    def __init__(self) -> None:
+        self._snack: ft.SnackBar | None = None
+        self.open: bool = False
+
+
 class _MockPage:
-    """Flet Page 的轻量级存根。"""
+    """Flet Page 轻量级存根，贴合真实运行时 API 面。"""
 
     def __init__(self) -> None:
         self.calls: list[str] = []
         self._route = "/dashboard"
         self._views: list[ft.View] = []
-        self._snackbars: list[ft.SnackBar] = []
+        self._snack_bar = _MockSnackBarHolder()
 
         self.title = ""
         self.theme_mode: ft.ThemeMode | None = None
@@ -69,16 +77,23 @@ class _MockPage:
         self.calls.append(f"go:{route}")
         self._route = route
 
-    def open(self, control: ft.Control) -> None:
-        self.calls.append("open")
-        if isinstance(control, ft.SnackBar):
-            self._snackbars.append(control)
+    def show_dialog(self, dialog: ft.AlertDialog) -> None:
+        self.calls.append("show_dialog")
 
-    def close(self, control: ft.Control | None = None) -> None:
-        self.calls.append("close")
+    def pop_dialog(self) -> None:
+        self.calls.append("pop_dialog")
 
     def launch_url(self, url: str) -> None:
         self.calls.append(f"launch_url:{url}")
+
+    @property
+    def snack_bar(self) -> _MockSnackBarHolder:
+        return self._snack_bar
+
+    @snack_bar.setter
+    def snack_bar(self, value: ft.SnackBar) -> None:
+        self._snack_bar._snack = value
+        self._snack_bar.open = False
 
     @property
     def route(self) -> str:
@@ -129,6 +144,7 @@ def _make_paper(**overrides) -> Paper:
 def _mock_ctx(conn: sqlite3.Connection) -> AppContext:
     """构造包含 mock service 的 AppContext。"""
     from app.application.services import (
+        PaperLibraryService,
         PaperQueryService,
         StatusService,
         SubscriptionService,
@@ -141,12 +157,14 @@ def _mock_ctx(conn: sqlite3.Connection) -> AppContext:
     mock_sub.list_subscriptions.return_value = []
     mock_sync = MagicMock(spec=SyncService)
     mock_sync.sync_enabled_subscriptions.return_value = []
+    mock_library = MagicMock(spec=PaperLibraryService)
 
     settings_svc = SettingsService(conn)
     scheduler = SyncScheduler(mock_sync, settings_svc)
 
     return AppContext(
         connection=conn,
+        paper_library_service=mock_library,
         paper_query_service=mock_query,
         settings_service=settings_svc,
         status_service=mock_status,

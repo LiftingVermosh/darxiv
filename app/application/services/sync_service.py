@@ -15,6 +15,7 @@ from app.infrastructure.arxiv import (
 )
 from app.infrastructure.db.repositories import (
     PaperRepository,
+    SubscriptionPaperRepository,
     SubscriptionRepository,
     SyncRunRepository,
 )
@@ -61,6 +62,7 @@ class SyncService:
         self._sub_repo = SubscriptionRepository(connection)
         self._paper_repo = PaperRepository(connection)
         self._sync_run_repo = SyncRunRepository(connection)
+        self._sub_paper_repo = SubscriptionPaperRepository(connection)
         self._arxiv_client = arxiv_client or ArxivClient()
 
     def close(self) -> None:
@@ -215,7 +217,11 @@ class SyncService:
             fetch_result = parse_feed(raw_xml, query)
 
             # 增量入库（在同一事务中完成全部 paper 写入）
-            inserted, updated = self._persist_papers(fetch_result.papers)
+            inserted, updated = self._persist_papers(
+                fetch_result.papers,
+                subscription_id=subscription.id,
+                sync_run_id=run_id,
+            )
 
             # 标记 sync_run 为成功
             finished_at = datetime.now(timezone.utc)
@@ -283,7 +289,12 @@ class SyncService:
                 error_message=error_msg,
             )
 
-    def _persist_papers(self, papers: list[Paper]) -> tuple[int, int]:
+    def _persist_papers(
+        self, papers: list[Paper],
+        *,
+        subscription_id: str,
+        sync_run_id: str,
+    ) -> tuple[int, int]:
         """将论文列表逐条写入本地数据库。
 
         去重规则：
@@ -292,6 +303,14 @@ class SyncService:
         - 数据库不存在的论文计为 **inserted**
         - 已存在且当前快照发生变化（版本号提升，或同版本下标题、
           摘要、更新时间变化）计为 **updated**
+
+        每条论文入库后同步写入 ``subscription_papers`` 归属表，
+        使系统记录该论文由哪个订阅引入。
+
+        Args:
+            papers: 待持久化的论文列表
+            subscription_id: 触发本次同步的订阅 ID
+            sync_run_id: 本次同步运行的 ID
 
         Returns:
             ``(inserted_count, updated_count)``
@@ -305,6 +324,18 @@ class SyncService:
 
             self._paper_repo.upsert(paper)
             self._paper_repo.upsert_version(paper, None)
+
+            # 记录订阅-论文归属关系
+            # 注意：不在此处升级 provenance_state。legacy_unattributed
+            # 论文即使通过重同步建立了某个订阅的链接，也不等于"所有
+            # 历史归属都已恢复"——它可能还属于其他尚未重同步的旧订阅。
+            # 因此保留 legacy_unattributed 标记，防止部分重建的归属被
+            # 误判为完整归属后遭到孤儿删除。
+            self._sub_paper_repo.upsert(
+                subscription_id=subscription_id,
+                arxiv_id=paper.arxiv_id,
+                last_sync_run_id=sync_run_id,
+            )
 
             if is_new:
                 inserted += 1

@@ -41,6 +41,7 @@ def _setup_db() -> sqlite3.Connection:
 def _mock_ctx(conn: sqlite3.Connection) -> AppContext:
     """构建一个用于测试的最小 AppContext（不启动 scheduler）。"""
     from app.application.services import (
+        PaperLibraryService,
         PaperQueryService,
         SettingsService,
         StatusService,
@@ -50,6 +51,7 @@ def _mock_ctx(conn: sqlite3.Connection) -> AppContext:
 
     return AppContext(
         connection=conn,
+        paper_library_service=PaperLibraryService(conn),
         paper_query_service=PaperQueryService(conn),
         settings_service=SettingsService(conn),
         status_service=StatusService(conn),
